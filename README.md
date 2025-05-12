@@ -89,9 +89,12 @@ Sample CSV:
 		- available languages 
 		- total number of strings
 		- total number of missing strings (compared to english)
-	- auto-translate: auto translates using DeepL or Chat GPT all missing strings
+	- auto-translate: auto translates using DeepL or Chat GPT all missing language strings (not regions)
 
-### Web UI
+### AI Translation Support
+- Implement autocomplete support using Chat GPT/DeepL or similar suitable AI Tools to fill in suggestions for missing translations.
+
+### Web UI (optional)
 - Implement a locally runnable Web UI in Svelte (Kit)
 - It allows to easily fill in missing translations for languages
 - All changes should be reflected in the backing CSV file
@@ -101,9 +104,6 @@ Sample CSV:
 	- Add a Button to add a new region to a given language
 - Add a Button to Generate all platform files for all languages
 
-### AI Translation Support
-- Implement autocomplete support using Chat GPT/DeepL or similar suitable AI Tools to fill in suggestions for missing translations.
-- Remember which strings have been translated using UI and which have been checked by Humans, add a boolean flag to CSV
 
 
 ## What You'll Learn
