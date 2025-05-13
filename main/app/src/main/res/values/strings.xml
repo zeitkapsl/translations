@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">zeitkapsl</string>
+    <string name="app_environment">PROD</string>
+
+    <!-- Common -->
+    <string name="internet_required">You seem to be offline</string>
+    <string name="menu_setting">Settings</string>
+
+    <!-- Login -->
+    <string name="login_forgot_password">Forgot password</string>
+    <string name="login_login">Login</string>
+    <string name="login_sign_up">Sign up</string>
+    <string name="login_empty_email">Email must not be empty</string>
+    <string name="login_empty_password">Password must not be empty</string>
+    <string name="login_empty_two_factor_code_title">Two-factor authentication</string>
+    <string name="login_empty_two_factor_code">Code must not be empty</string>
+    <string name="login_empty_two_factor_code_error">Invalid 2FA code</string>
+    <string name="login_environment_changed">Switched environment: %1s</string>
+
+    <!-- Searchbar Filter -->
+    <string name="filter_placeholder">Search</string>
+
+    <!-- Grid -->
+    <plurals name="media_delete_forever_title">
+        <item quantity="one">Delete %1d element permanently</item>
+        <item quantity="other">Delete %1d elements permanently</item>
+    </plurals>
+    <string name="media_delete_forever_description">This action cannot be undone</string>
+    <string name="media_delete_forever_button">Delete</string>
+    <plurals name="media_selected">
+        <item quantity="one">%1d element selected</item>
+        <item quantity="other">%1d elements selected</item>
+    </plurals>
+    <string name="media_empty">No Media</string>
+    <string name="media_empty_description">No media found for this criteria</string>
+
+    <!-- Viewer -->
+    <string name="viewer_info">Info</string>
+    <string name="viewer_hide">Hide</string>
+    <string name="viewer_show">Show</string>
+    <string name="viewer_share">Share</string>
+    <string name="viewer_delete_forever">Delete permanently</string>
+    <string name="viewer_add_to_collection">Add to collection</string>
+    <string name="viewer_remove_from_collection">Remove from collection</string>
+    <string name="viewer_collection_preview">Set as preview image</string>
+
+    <!-- Share -->
+    <plurals name="share_title">
+        <item quantity="one">Share %1d element</item>
+        <item quantity="other">Share %1d elements</item>
+    </plurals>
+    <string name="share_collection_title">Share collection %1s</string>
+    <string name="share_tab_link">Link</string>
+    <string name="share_tab_other">Other apps</string>
+    <string name="share_placeholder_name">Assign collection name</string>
+    <string name="share_placeholder_name_default">Share from</string>
+    <string name="share_placeholder_date">Date valid until</string>
+    <string name="share_allow_upload">Allow uploads</string>
+    <string name="share_button">Share</string>
+    <string name="share_copy_button">Copy</string>
+    <string name="internet_activate">Please activate your internet connection</string>
+    <string name="share_loaded">%d of $d elements loaded</string>
+    <string name="share_date_picker_accept">Accept</string>
+    <string name="share_date_picker_cancel">Cancel</string>
+    <string name="share_empty_name">Name must not be empty</string>
+    <string name="share_empty_date">Date must not be empty</string>
+
+    <!-- Share management -->
+    <string name="share_management_title">Shared content</string>
+    <string name="share_delete_title">Delete "%1s" permanently?</string>
+    <string name="share_delete_description">This action cannot be undone. The items in the share will not be deleted.</string>
+    <string name="share_delete_button">Delete</string>
+    <string name="share_empty">No shared content</string>
+    <string name="share_empty_description">No shared content was found</string>
+
+    <!-- Share management sheet-->
+    <string name="share_management_sheet_tab_info">Info</string>
+    <string name="share_management_sheet_tab_edit">Edit</string>
+    <string name="share_management_sheet_button_update">update</string>
+
+    <!-- Collection -->
+    <string name="collection_landing_title_placeholder_search">Search Collections</string>
+    <string name="collection_landing_title_selected">unselect</string>
+    <string name="collection_landing_create">Create</string>
+    <string name="collection_landing_no_collection">No collections</string>
+    <string name="collection_landing_no_collection_description">No collections found</string>
+    <string name="collection_delete_title">Delete collection "%1s" permanently?</string>
+    <string name="collection_delete_description">This action cannot be undone. The items in the collection will not be deleted.</string>
+    <string name="collection_delete_button">Delete</string>
+
+    <!-- Collection Details -->
+    <string name="collection_details_title">Collection Details</string>
+    <string name="collection_details_change_name">Change name</string>
+    <string name="collection_details_share">Share</string>
+    <string name="collection_details_delete">Delete collection</string>
+    <plurals name="collection_details_selected">
+        <item quantity="one">%1d element selected</item>
+        <item quantity="other">%1d elements selected</item>
+    </plurals>
+    <plurals name="collection_details_count">
+        <item quantity="one">%1d Object</item>
+        <item quantity="other">%1d Objects</item>
+    </plurals>
+
+    <!-- Add/Create Collection -->
+    <string name="create_collection_title">Create collection</string>
+    <string name="create_collection_button">Create collection</string>
+    <string name="create_collection_placeholder_name">Assign album name</string>
+    <string name="update_collection_title">Edit collection</string>
+    <string name="update_collection_button">Change collection</string>
+    <plurals name="add_collection_selected">
+        <item quantity="one">Add %1d element</item>
+        <item quantity="other">Add %1d elements</item>
+    </plurals>
+    <string name="add_collection_cancel">Cancel</string>
+
+    <!-- Settings -->
+    <string name="setting_title">Settings</string>
+    <!-- Account -->
+    <string name="setting_account_title">Account</string>
+    <string name="setting_account_email">Email</string>
+    <string name="setting_account_name">Name</string>
+    <string name="setting_account_cloud_storage">Cloud storage</string>
+    <string name="setting_account_logout">Logout</string>
+    <!-- Privacy -->
+    <string name="setting_privacy_title">Privacy</string>
+    <string name="setting_privacy_show_map">Show GPS map</string>
+    <!-- Media -->
+    <string name="setting_media_title">Media library</string>
+    <string name="setting_media_photos">Photos</string>
+    <string name="setting_media_videos">Videos</string>
+    <string name="setting_media_live_photos">Live Photos</string>
+    <!-- Backup -->
+    <string name="setting_backup_title">Backup</string>
+    <string name="setting_backup_state_complete">Completed</string>
+    <plurals name="setting_backup_item_processing">
+        <item quantity="one">1 • uploading</item>
+        <item quantity="other">%d • uploading</item>
+    </plurals>
+    <string name="setting_backup_state_syncing">Synchronization is progress</string>
+    <string name="setting_backup_state_importing">importing</string>
+    <plurals name="setting_backup_item_waiting">
+        <item quantity="one">1 • waiting</item>
+        <item quantity="other">%d • waiting</item>
+    </plurals>
+    <string name="setting_backup_permission_required_partial">Only selected access has been granted. You can change this at any time in the settings.</string>
+    <string name="setting_backup_permission_required">For automatic backups we need access to media.</string>
+    <string name="setting_backup_permission_settings">Media access settings</string>
+    <!-- Backup Setting-->
+    <string name="setting_backup_automatic">Automatic backups</string>
+    <string name="setting_backup_use_mobile_data">Use mobile data</string>
+    <string name="setting_backup_source">Media used</string>
+    <string name="setting_backup_camera">Camera</string>
+    <string name="setting_backup_videos">Videos</string>
+    <string name="setting_backup_screenshots">Screenshots</string>
+    <string name="setting_backup_downloads">Downloads</string>
+    <string name="setting_backup_signal_downloads">Signal Downloads</string>
+    <string name="setting_backup_whatsapp_downloads">WhatsApp Downloads</string>
+    <string name="setting_backup_telegram_downloads">Telegram Downloads</string>
+    <!-- Support -->
+    <string name="setting_support">Support</string>
+
+    <!-- Autobackup -->
+    <string name="backup_dialog_automatic_backup">Automatic backup</string>
+    <string name="backup_dialog_automatic_backup_details">Should we make automatic backups?</string>
+    <string name="backup_dialog_automatic_backup_No">No</string>
+    <string name="backup_dialog_automatic_backup_Yes">Yes</string>
+
+    <!-- Permission Dialog -->
+    <string name="permission_dialog_library_access">Media access</string>
+    <string name="permission_dialog_library_access_details">May we access your media library to create backups?</string>
+    <string name="permission_dialog_automatic_backup_No">No</string>
+    <string name="permission_dialog_automatic_backup_Yes">Yes</string>
+
+    <!-- Authentication -->
+    <string name="authentication_title">Secure area</string>
+    <string name="authentication_description">To continue please log in</string>
+    <string name="authentication_failed">Authentication failed</string>
+
+    <!-- Search Overview -->
+    <string name="search_overview_title">Search categories</string>
+    <string name="search_overview_no_categories">No categories</string>
+    <string name="search_overview_no_categories_description">No categories found</string>
+
+    <!-- Search Details -->
+    <string name="search_detail_title">%1s</string>
+    <string name="search_detail_no_samples">No details</string>
+    <string name="search_detail_no_samples_description">No search details found</string>
+    <string name="search_detail_update_sample_title">Update Name</string>
+    <string name="search_detail_update_placeholder_name">Assign name here</string>
+    <string name="search_detail_update_button">Change</string>
+</resources>
