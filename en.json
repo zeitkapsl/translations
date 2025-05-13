@@ -1,0 +1,5 @@
+{
+  "somekey.singular": "this is a singular string",
+  "somekey.plural": "this is a %d plurarl string",
+  "some.other.key": "some different key"
+}
