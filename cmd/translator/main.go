@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/zeitkapsl/translations/internal/android"
 	"github.com/zeitkapsl/translations/internal/csv"
 	"github.com/zeitkapsl/translations/internal/ios"
 	"github.com/zeitkapsl/translations/internal/models"
+	"github.com/zeitkapsl/translations/internal/translator"
 	"github.com/zeitkapsl/translations/internal/web"
 )
 
@@ -244,6 +246,7 @@ func exportTranslations(platform, directory string) {
 }
 
 // showStats shows translation statistics
+// showStats shows detailed translation statistics
 func showStats() {
 	ts, err := csv.LoadFromCSV("")
 	if err != nil {
@@ -254,15 +257,24 @@ func showStats() {
 	fmt.Println("Translation Statistics:")
 	fmt.Println("======================")
 
-	// Count total strings (based on English translations)
+	// Count total strings and types
 	totalStrings := 0
+	singularCount := 0
+	pluralCount := 0
+
 	for _, trans := range ts.Translations {
-		if enTrans, ok := trans.Translations["en"]; ok && len(enTrans) > 0 {
+		if _, ok := trans.Translations["en"]; ok {
 			totalStrings++
+			if trans.Type == models.TypeSingular {
+				singularCount++
+			} else {
+				pluralCount++
+			}
 		}
 	}
 
-	fmt.Printf("Total number of strings: %d\n\n", totalStrings)
+	fmt.Printf("Total strings: %d (%d singular, %d plural)\n\n",
+		totalStrings, singularCount, pluralCount)
 
 	// Show language stats
 	fmt.Println("Language coverage:")
@@ -283,54 +295,217 @@ func showStats() {
 		}
 	}
 
+	// Sort base languages for consistent output
+	sortedBaseLanguages := make([]string, 0, len(baseLanguages))
+	for lang := range baseLanguages {
+		sortedBaseLanguages = append(sortedBaseLanguages, lang)
+	}
+	sort.Strings(sortedBaseLanguages)
+
 	// Calculate stats for each language
-	for baseLang, regions := range baseLanguages {
+	for _, baseLang := range sortedBaseLanguages {
 		if baseLang == "en" {
 			continue // Skip English as it's the source language
 		}
 
 		// Base language stats
-		translated := 0
+		singularTranslated := 0.0
+		pluralTranslated := 0.0
+
 		for _, trans := range ts.Translations {
-			if langTrans, ok := trans.Translations[baseLang]; ok && len(langTrans) > 0 {
-				translated++
+			if _, ok := trans.Translations["en"]; !ok {
+				continue // Skip if no English source
 			}
-		}
 
-		missing := totalStrings - translated
-		percentComplete := 0.0
-		if totalStrings > 0 {
-			percentComplete = float64(translated) / float64(totalStrings) * 100
-		}
+			if langTrans, ok := trans.Translations[baseLang]; ok {
+				if trans.Type == models.TypeSingular {
+					if _, ok := langTrans[models.QuantityOne]; ok {
+						singularTranslated++
+					}
+				} else {
+					// For plurals, check if both forms are translated
+					oneOk := false
+					otherOk := false
 
-		fmt.Printf("%s: %d/%d (%.1f%%) - %d missing\n",
-			baseLang, translated, totalStrings, percentComplete, missing)
+					if _, ok := langTrans[models.QuantityOne]; ok {
+						oneOk = true
+					}
+					if _, ok := langTrans[models.QuantityOther]; ok {
+						otherOk = true
+					}
 
-		// Regional variants stats
-		for _, region := range regions {
-			translated := 0
-			for _, trans := range ts.Translations {
-				if langTrans, ok := trans.Translations[region]; ok && len(langTrans) > 0 {
-					translated++
+					if oneOk && otherOk {
+						pluralTranslated++
+					} else if oneOk || otherOk {
+						// Partial translation (only one form)
+						pluralTranslated += 0.5
+					}
 				}
 			}
+		}
 
-			missing := totalStrings - translated
-			percentComplete := 0.0
-			if totalStrings > 0 {
-				percentComplete = float64(translated) / float64(totalStrings) * 100
+		totalTranslated := singularTranslated + pluralTranslated
+		percentComplete := 0.0
+		if totalStrings > 0 {
+			percentComplete = float64(totalTranslated) / float64(totalStrings) * 100
+		}
+
+		missing := totalStrings - int(totalTranslated)
+
+		fmt.Printf("%s: %.1f/%d (%.1f%%) - %d missing\n",
+			baseLang, totalTranslated, totalStrings, percentComplete, missing)
+
+		fmt.Printf("  Singular: %f/%d (%.1f%%)\n",
+			singularTranslated, singularCount,
+			float64(singularTranslated)/float64(singularCount)*100)
+
+		fmt.Printf("  Plural: %.1f/%d (%.1f%%)\n",
+			pluralTranslated, pluralCount,
+			float64(pluralTranslated)/float64(pluralCount)*100)
+
+		// Regional variants stats
+		regions := baseLanguages[baseLang]
+		sort.Strings(regions)
+
+		for _, region := range regions {
+			singularTranslated := 0.0
+			pluralTranslated := 0.0
+
+			for _, trans := range ts.Translations {
+				if _, ok := trans.Translations["en"]; !ok {
+					continue
+				}
+
+				if langTrans, ok := trans.Translations[region]; ok {
+					if trans.Type == models.TypeSingular {
+						if _, ok := langTrans[models.QuantityOne]; ok {
+							singularTranslated++
+						}
+					} else {
+						// For plurals, check if both forms are translated
+						oneOk := false
+						otherOk := false
+
+						if _, ok := langTrans[models.QuantityOne]; ok {
+							oneOk = true
+						}
+						if _, ok := langTrans[models.QuantityOther]; ok {
+							otherOk = true
+						}
+
+						if oneOk && otherOk {
+							pluralTranslated++
+						} else if oneOk || otherOk {
+							// Partial translation
+							pluralTranslated += 0.5
+
+						}
+					}
+				} 
 			}
 
-			fmt.Printf("  %s: %d/%d (%.1f%%) - %d missing\n",
-				region, translated, totalStrings, percentComplete, missing)
+			totalTranslated := singularTranslated + pluralTranslated
+			percentComplete := 0.0
+			if totalStrings > 0 {
+				percentComplete = float64(totalTranslated) / float64(totalStrings) * 100
+			}
+
+			missing := totalStrings - int(totalTranslated)
+
+			fmt.Printf("  %s: %.1f/%d (%.1f%%) - %d missing\n",
+				region, totalTranslated, totalStrings, percentComplete, missing)
+		}
+
+		fmt.Println()
+	}
+
+	// Show keys with missing translations
+	fmt.Println("\nKeys with missing translations:")
+	fmt.Println("-----------------------------")
+
+	missingByLang := make(map[string][]string)
+
+	for _, trans := range ts.Translations {
+		// Skip if no English source
+		if _, ok := trans.Translations["en"]; !ok {
+			continue
+		}
+
+		for _, lang := range ts.Languages {
+			if lang == "en" {
+				continue
+			}
+
+			if trans.Type == models.TypeSingular {
+				if langTrans, ok := trans.Translations[lang]; !ok || langTrans[models.QuantityOne] == "" {
+					missingByLang[lang] = append(missingByLang[lang], trans.Key)
+				}
+			} else {
+				// For plurals, check both forms
+				if langTrans, ok := trans.Translations[lang]; !ok ||
+					langTrans[models.QuantityOne] == "" || langTrans[models.QuantityOther] == "" {
+					missingByLang[lang] = append(missingByLang[lang], trans.Key+" (plural)")
+				}
+			}
+		}
+	}
+
+	// Show missing translations for each language (limit to first 10)
+	for _, baseLang := range sortedBaseLanguages {
+		if baseLang == "en" {
+			continue
+		}
+
+		if missing, ok := missingByLang[baseLang]; ok && len(missing) > 0 {
+			fmt.Printf("%s: %d missing\n", baseLang, len(missing))
+
+			// Show first 10 missing keys
+			showCount := 10
+			if len(missing) < showCount {
+				showCount = len(missing)
+			}
+
+			for i := 0; i < showCount; i++ {
+				fmt.Printf("  - %s\n", missing[i])
+			}
+
+			if len(missing) > showCount {
+				fmt.Printf("  ... and %d more\n", len(missing)-showCount)
+			}
+
+			fmt.Println()
 		}
 	}
 }
 
 // autoTranslate uses AI to translate missing strings
+// autoTranslate uses AI to translate missing strings
 func autoTranslate() {
-	fmt.Println("Auto-translation not yet implemented")
-	// TODO: Implement AI translation integration
+	ts, err := csv.LoadFromCSV("")
+	if err != nil {
+		fmt.Printf("Error loading translations: %v\n", err)
+		return
+	}
+
+	// Get translation service
+	service := translator.GetTranslationService()
+
+	fmt.Println("Auto-translating missing strings...")
+
+	// Perform translation
+	count, err := translator.AutoTranslate(ts, service)
+	if err != nil {
+		fmt.Printf("Error during translation: %v\n", err)
+		return
+	}
+
+	// Save updated translations
+	if err := csv.SaveToCSV(ts, ""); err != nil {
+		fmt.Printf("Error saving translations: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Auto-translation completed. Translated %d strings.\n", count)
 }
 
 // isValidLanguageCode checks if a string is a valid language code
