@@ -97,7 +97,7 @@ func GetTranslationService() TranslationService {
 
 // AutoTranslate translates missing strings in the translation set
 func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, error) {
-	sourceLang := "de"
+	sourceLang := "en"
 	translatedCount := 0
 
 	fmt.Printf("Using %s for translation\n", service.Name())
