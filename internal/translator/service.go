@@ -24,6 +24,8 @@ type DeepLTranslator struct {
 	APIKey string
 }
 
+
+
 // Name returns the name of the translation service
 func (d *DeepLTranslator) Name() string {
 	return "DeepL"
@@ -86,13 +88,118 @@ func (d *DeepLTranslator) Translate(text, sourceLang, targetLang string) (string
 	return result.Translations[0].Text, nil
 }
 
-// GetTranslationService returns the DeepL translation service if the API key is set
-func GetTranslationService() TranslationService {
-	apiKey := os.Getenv("DEEPL_API_KEY")
-	if apiKey == "" {
-		panic("DEEPL_API_KEY is not set. Please set the environment variable for translation to work.")
+// AzureTranslator implements the TranslationService interface using Azure Translator API
+type AzureTranslator struct {
+	Key        string
+	Region     string
+	Endpoint   string
+}
+
+// Name returns the name of the translation service
+func (a *AzureTranslator) Name() string {
+	return "Azure Translator"
+}
+
+// Translate translates text using Azure Translator API
+func (a *AzureTranslator) Translate(text, sourceLang, targetLang string) (string, error) {
+	if a.Key == "" {
+		return "", fmt.Errorf("Azure Translator key not set. Set AZURE_TRANSLATOR_KEY environment variable")
 	}
-	return &DeepLTranslator{APIKey: apiKey}
+	
+	if a.Region == "" {
+		return "", fmt.Errorf("Azure Translator region not set. Set AZURE_TRANSLATOR_REGION environment variable")
+	}
+
+	url := a.Endpoint
+	if url == "" {
+		url = "https://api.cognitive.microsofttranslator.com/translate"
+	}
+
+	// Add API version and parameters
+	url = fmt.Sprintf("%s?api-version=3.0&from=%s&to=%s", url, sourceLang, targetLang)
+
+	// Prepare request body
+	requestBody, err := json.Marshal([]map[string]string{
+		{"Text": text},
+	})
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %v", err)
+	}
+
+	// Set required headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Ocp-Apim-Subscription-Key", a.Key)
+	req.Header.Set("Ocp-Apim-Subscription-Region", a.Region)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error sending request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result []struct {
+		Translations []struct {
+			Text string `json:"text"`
+			To   string `json:"to"`
+		} `json:"translations"`
+	}
+	
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if len(result) == 0 || len(result[0].Translations) == 0 {
+		return "", fmt.Errorf("no translation returned")
+	}
+
+	return result[0].Translations[0].Text, nil
+}
+
+func GetTranslationService() TranslationService {
+	// Check for Azure API key first
+	azureKey := os.Getenv("AZURE_TRANSLATOR_KEY")
+	azureRegion := os.Getenv("AZURE_TRANSLATOR_REGION")
+	azureEndpoint := os.Getenv("AZURE_TRANSLATOR_ENDPOINT")
+	
+	// Default endpoint if not specified
+	if azureEndpoint == "" {
+		azureEndpoint = "https://api.cognitive.microsofttranslator.com/translate"
+	}
+	
+	// If Azure credentials are available, use Azure
+	if azureKey != "" && azureRegion != "" {
+		fmt.Println("Using Azure Translator service")
+		return &AzureTranslator{
+			Key:      azureKey,
+			Region:   azureRegion,
+			Endpoint: azureEndpoint,
+		}
+	}
+	
+	// Fall back to DeepL
+	deeplKey := os.Getenv("DEEPL_API_KEY")
+	if deeplKey != "" {
+		fmt.Println("Using DeepL translation service")
+		return &DeepLTranslator{APIKey: deeplKey}
+	}
+	
+	// No translation service available
+	panic("No translation service configured. Please set either DEEPL_API_KEY or both AZURE_TRANSLATOR_KEY and AZURE_TRANSLATOR_REGION environment variables.")
 }
 
 // AutoTranslate translates missing strings in the translation set

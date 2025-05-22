@@ -31,6 +31,7 @@ func main() {
 	regionFlag := addRegionCmd.String("region", "", "Region code to add (e.g., de-AT)")
 	platformFlag := exportCmd.String("platform", "", "Platform to export to (ios|android|json|csv)")
 	exportDirFlag := exportCmd.String("dir", ".", "Directory to export to")
+	translateServiceFlag := translateCmd.String("service", "", "Translation service to use (azure|deepl)")
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -68,7 +69,7 @@ func main() {
 		showStats()
 	case "auto-translate":
 		translateCmd.Parse(os.Args[2:])
-		autoTranslate()
+		autoTranslate(*translateServiceFlag)
 	case "help":
 		printUsage()
 	default:
@@ -480,32 +481,64 @@ func showStats() {
 
 // autoTranslate uses AI to translate missing strings
 // autoTranslate uses AI to translate missing strings
-func autoTranslate() {
-	ts, err := csv.LoadFromCSV("")
-	if err != nil {
-		fmt.Printf("Error loading translations: %v\n", err)
-		return
-	}
+func autoTranslate(serviceType string) {
+    ts, err := csv.LoadFromCSV("")
+    if err != nil {
+        fmt.Printf("Error loading translations: %v\n", err)
+        return
+    }
 
-	// Get translation service
-	service := translator.GetTranslationService()
+    // Get translation service based on the specified type
+    var service translator.TranslationService
+    if serviceType == "azure" {
+        // Force Azure service
+        azureKey := os.Getenv("AZURE_TRANSLATOR_KEY")
+        azureRegion := os.Getenv("AZURE_TRANSLATOR_REGION")
+        azureEndpoint := os.Getenv("AZURE_TRANSLATOR_ENDPOINT")
+        
+        if azureKey == "" || azureRegion == "" {
+            fmt.Println("Azure Translator credentials not set. Please set AZURE_TRANSLATOR_KEY and AZURE_TRANSLATOR_REGION environment variables.")
+            return
+        }
+        
+        if azureEndpoint == "" {
+            azureEndpoint = "https://api.cognitive.microsofttranslator.com/translate"
+        }
+        
+        service = &translator.AzureTranslator{
+            Key:      azureKey,
+            Region:   azureRegion,
+            Endpoint: azureEndpoint,
+        }
+    } else if serviceType == "deepl" {
+        // Force DeepL service
+        deeplKey := os.Getenv("DEEPL_API_KEY")
+        if deeplKey == "" {
+            fmt.Println("DeepL API key not set. Please set DEEPL_API_KEY environment variable.")
+            return
+        }
+        service = &translator.DeepLTranslator{APIKey: deeplKey}
+    } else {
+        // Use default service selection logic
+        service = translator.GetTranslationService()
+    }
 
-	fmt.Println("Auto-translating missing strings...")
+    fmt.Println("Auto-translating missing strings...")
 
-	// Perform translation
-	count, err := translator.AutoTranslate(ts, service)
-	if err != nil {
-		fmt.Printf("Error during translation: %v\n", err)
-		return
-	}
+    // Perform translation
+    count, err := translator.AutoTranslate(ts, service)
+    if err != nil {
+        fmt.Printf("Error during translation: %v\n", err)
+        return
+    }
 
-	// Save updated translations
-	if err := csv.SaveToCSV(ts, ""); err != nil {
-		fmt.Printf("Error saving translations: %v\n", err)
-		return
-	}
+    // Save updated translations
+    if err := csv.SaveToCSV(ts, ""); err != nil {
+        fmt.Printf("Error saving translations: %v\n", err)
+        return
+    }
 
-	fmt.Printf("Auto-translation completed. Translated %d strings.\n", count)
+    fmt.Printf("Auto-translation completed. Translated %d strings.\n", count)
 }
 
 // isValidLanguageCode checks if a string is a valid language code
