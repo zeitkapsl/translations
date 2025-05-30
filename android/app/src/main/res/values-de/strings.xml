@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">zeitkapsl</string>
+    <string name="app_environment">PROD</string>
+
+    <!-- Common -->
+    <string name="internet_required">Du bist scheinbar offline</string>
+    <string name="menu_setting">Einstellungen</string>
+
+    <!-- Login -->
+    <string name="login_forgot_password">Passwort vergessen</string>
+    <string name="login_login">Login</string>
+    <string name="login_sign_up">Registrieren</string>
+    <string name="login_empty_email">E-Mail darf nicht leer sein</string>
+    <string name="login_empty_password">Passwort darf nicht leer sein</string>
+    <string name="login_empty_two_factor_code_title">Zwei-Faktor-Authentifizierung</string>
+    <string name="login_empty_two_factor_code">Code darf nicht leer sein</string>
+    <string name="login_empty_two_factor_code_error">Ungültiger 2FA Code</string>
+    <string name="login_environment_changed">Umgebung gewechselt: %1s</string>
+
+    <!-- Searchbar Filter -->
+    <string name="filter_placeholder">Suche</string>
+
+    <!-- Grid -->
+    <plurals name="media_delete_forever_title">
+        <item quantity="one">%d Element entgültig löschen?</item>
+        <item quantity="other">%d Elemente entgültig löschen?</item>
+    </plurals>
+    <string name="media_delete_forever_description">Diese Aktion kann nicht rückgängig gemacht werden</string>
+    <string name="media_delete_forever_button">Löschen</string>
+    <plurals name="media_selected">
+        <item quantity="one">%1d Element ausgewählt</item>
+        <item quantity="other">%1d Elemente ausgewählt</item>
+    </plurals>
+    <string name="media_empty">Keine Medien</string>
+    <string name="media_empty_description">Keine Medien für dieses Kriterium gefunden</string>
+
+    <!-- Viewer -->
+    <string name="viewer_info">Info</string>
+    <string name="viewer_hide">Ausblenden</string>
+    <string name="viewer_show">Einblenden</string>
+    <string name="viewer_share">Teilen</string>
+    <string name="viewer_delete_forever">Entgültig löschen</string>
+    <string name="viewer_add_to_collection">Zum Album hinzufügen</string>
+    <string name="viewer_remove_from_collection">Aus Album entfernen</string>
+    <string name="viewer_collection_preview">Als Vorschaubild setzen</string>
+
+    <!-- Share -->
+    <plurals name="share_title">
+        <item quantity="one">Teilen von %1d Element</item>
+        <item quantity="other">Teilen von %1d Elementen</item>
+    </plurals>
+    <string name="share_collection_title">Teilen vom Album %1s</string>
+    <string name="share_tab_link">Link</string>
+    <string name="share_tab_other">Andere Apps</string>
+    <string name="share_placeholder_name">Hier Albumname vergeben</string>
+    <string name="share_placeholder_name_default">Share vom</string>
+    <string name="share_placeholder_date">Datum gültig bis</string>
+    <string name="share_allow_upload">Uploads zulassen</string>
+    <string name="share_button">Teilen</string>
+    <string name="share_copy_button">Kopieren</string>
+    <string name="internet_activate">Bitte aktiviere deine Internetverbindung</string>
+    <string name="share_loaded">%d von $d Elementen geladen</string>
+    <string name="share_date_picker_accept">OK</string>
+    <string name="share_date_picker_cancel">Abbrechen</string>
+    <string name="share_empty_name">Name darf nicht leer sein</string>
+    <string name="share_empty_date">Datum darf nicht leer sein</string>
+
+    <!-- Share management -->
+    <string name="share_management_title">Geteilte Inhalte</string>
+    <string name="share_delete_title">"%1s" entgültig löschen?</string>
+    <string name="share_delete_description">Diese Aktion kann nicht rückgängig gemacht werden. Die Elemente im Share werden dabei nicht gelöscht.</string>
+    <string name="share_delete_button">Löschen</string>
+    <string name="share_empty">Keine geteilten Inhalte</string>
+    <string name="share_empty_description">Keine geteilten Inhalte gefunden</string>
+
+    <!-- Share management sheet-->
+    <string name="share_management_sheet_tab_info">Info</string>
+    <string name="share_management_sheet_tab_edit">Bearbeiten</string>
+    <string name="share_management_sheet_button_update">Aktualisieren</string>
+
+    <!-- Collection -->
+    <string name="collection_landing_title_placeholder_search">Alben suchen</string>
+    <string name="collection_landing_title_selected">abwählen</string>
+    <string name="collection_landing_create">Erstellen</string>
+    <string name="collection_landing_no_collection">Keine Alben</string>
+    <string name="collection_landing_no_collection_description">Es wurden keine Alben gefunden.</string>
+    <string name="collection_delete_title">Album "%1s" entgültig löschen?</string>
+    <string name="collection_delete_description">Diese Aktion kann nicht rückgängig gemacht werden. Die Elemente im Album werden dabei nicht gelöscht.</string>
+    <string name="collection_delete_button">Löschen</string>
+
+    <!-- Collection Details -->
+    <string name="collection_details_title">Album Details</string>
+    <string name="collection_details_change_name">Name ändern</string>
+    <string name="collection_details_share">Teilen</string>
+    <string name="collection_details_delete">Album löschen</string>
+    <plurals name="collection_details_selected">
+        <item quantity="one">%1d Element ausgewählt</item>
+        <item quantity="other">%1d Elemente ausgewählt</item>
+    </plurals>
+    <plurals name="collection_details_count">
+        <item quantity="one">%1d Objekt</item>
+        <item quantity="other">%1d Objekte</item>
+    </plurals>
+
+    <!-- Add/Create/Update Collection -->
+    <string name="create_collection_title">Album erstellen</string>
+    <string name="create_collection_button">Album erstellen</string>
+    <string name="create_collection_placeholder_name">Albumname</string>
+    <string name="update_collection_title">Album bearbeiten</string>
+    <string name="update_collection_button">Album ändern</string>
+    <plurals name="add_collection_selected">
+        <item quantity="one">%1d Element hinzufügen</item>
+        <item quantity="other">%1d Elemente hinzufügen</item>
+    </plurals>
+    <string name="add_collection_cancel">Abbrechen</string>
+
+    <!-- Settings -->
+    <string name="setting_title">Einstellungen</string>
+    <!-- Account -->
+    <string name="setting_account_title">Konto</string>
+    <string name="setting_account_email">Email</string>
+    <string name="setting_account_name">Name</string>
+    <string name="setting_account_cloud_storage">Cloudspeicher</string>
+    <string name="setting_account_logout">Ausloggen</string>
+    <!-- Privacy -->
+    <string name="setting_privacy_title">Privatsphäre</string>
+    <string name="setting_privacy_show_map">GPS Karte anzeigen</string>
+    <!-- Media -->
+    <string name="setting_media_title">Medienbibliothek</string>
+    <string name="setting_media_photos">Fotos</string>
+    <string name="setting_media_videos">Videos</string>
+    <string name="setting_media_live_photos">Live Photos</string>
+    <!-- Backup -->
+    <!-- Backup Header-->
+    <string name="setting_backup_title">Backup</string>
+    <string name="setting_backup_state_complete">Abgeschlossen</string>
+    <plurals name="setting_backup_item_processing">
+        <item quantity="one">1 • wird gesichert</item>
+        <item quantity="other">%d • werden gesichert</item>
+    </plurals>
+    <string name="setting_backup_state_syncing">Synchronisierung läuft</string>
+    <string name="setting_backup_state_importing">%d durchsuchen</string>
+    <plurals name="setting_backup_item_waiting">
+        <item quantity="one">1 • wartet</item>
+        <item quantity="other">%d • warten</item>
+    </plurals>
+    <string name="setting_backup_permission_required_partial">Es wurde nur ausgewählter Zugriff gewährt. Du kannst das jederzeit in den Einstellungen ändern.</string>
+    <string name="setting_backup_permission_required">Für automatische Backups brauchen wir Zugriff auf Medien.</string>
+    <string name="setting_backup_permission_settings">Medienzugriff Einstellungen</string>
+    <!-- Backup Setting-->
+    <string name="setting_backup_automatic">Automatische Backups</string>
+    <string name="setting_backup_use_mobile_data">Mobile Daten verwenden</string>
+    <string name="setting_backup_source">Verwendete Medien</string>
+    <string name="setting_backup_camera">Fotos</string>
+    <string name="setting_backup_videos">Videos</string>
+    <string name="setting_backup_screenshots">Screenshots</string>
+    <string name="setting_backup_downloads">Downloads</string>
+    <string name="setting_backup_signal_downloads">Signal Downloads</string>
+    <string name="setting_backup_whatsapp_downloads">WhatsApp Downloads</string>
+    <string name="setting_backup_telegram_downloads">Telegram Downloads</string>
+    <!-- Support -->
+    <string name="setting_backup_directories">Ordner</string>
+    <string name="setting_support">Support</string>
+
+    <!-- Autobackup -->
+    <string name="backup_dialog_automatic_backup">Automatische Backup</string>
+    <string name="backup_dialog_automatic_backup_details">Sollen wir automatische Backups machen?</string>
+    <string name="backup_dialog_automatic_backup_No">Nein</string>
+    <string name="backup_dialog_automatic_backup_Yes">Ja</string>
+
+    <!-- Permission Dialog -->
+    <string name="permission_dialog_library_access">Medienzugriff</string>
+    <string name="permission_dialog_library_access_details">Dürfen wir auf deine Medienbibliothek zugreifen um Backups anzufertigen?</string>
+    <string name="permission_dialog_automatic_backup_No">Nein</string>
+    <string name="permission_dialog_automatic_backup_Yes">Ja</string>
+
+    <!-- Authentication -->
+    <string name="authentication_title">Sicherer Bereich</string>
+    <string name="authentication_description">Um fortzufahren bitte einloggen</string>
+    <string name="authentication_failed">Authentifizierung fehlgeschlagen</string>
+
+    <!-- Search Overview -->
+    <string name="search_overview_title">Suchkategorien</string>
+    <string name="search_overview_no_categories">Keine Kategorien</string>
+    <string name="search_overview_no_categories_description">Keine Kategorien gefunden</string>
+
+    <!-- Search Details -->
+    <string name="search_detail_title">%1s</string>
+    <string name="search_detail_no_samples">Keine Details</string>
+    <string name="search_detail_no_samples_description">Keine Suchdetails gefunden</string>
+    <string name="search_detail_update_sample_title">Name Aktualisieren</string>
+    <string name="search_detail_update_placeholder_name">Hier Name vergeben</string>
+    <string name="search_detail_update_button">Ändern</string>
+</resources>
