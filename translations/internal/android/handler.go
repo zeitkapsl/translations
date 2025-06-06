@@ -39,15 +39,23 @@ type PluralItem struct {
 }
 
 // ImportFromAndroid imports translations from Android strings.xml files
-func ImportFromAndroid(ts *models.TranslationSet, directory string) error {
-	if directory == "" {
-		directory = "."
+func ImportFromAndroid(ts *models.TranslationSet, baseDirectory string) error {
+	if baseDirectory == "" {
+		baseDirectory = "."
+	}
+
+	// Look for Android project structure: android/app/src/main/res/
+	androidResPath := filepath.Join(baseDirectory, "android", "app", "src", "main", "res")
+	
+	// Check if the Android res directory exists
+	if _, err := os.Stat(androidResPath); os.IsNotExist(err) {
+		return fmt.Errorf("Android res directory not found at %s", androidResPath)
 	}
 
 	// Scan for values directories (values, values-en, values-de, etc.)
-	entries, err := os.ReadDir(directory)
+	entries, err := os.ReadDir(androidResPath)
 	if err != nil {
-		return fmt.Errorf("error reading directory %s: %v", directory, err)
+		return fmt.Errorf("error reading directory %s: %v", androidResPath, err)
 	}
 
 	valuesDir := []string{}
@@ -57,23 +65,8 @@ func ImportFromAndroid(ts *models.TranslationSet, directory string) error {
 		}
 	}
 
-	// Add default values dir if found
-	valuesFound := false
-	for _, dir := range valuesDir {
-		if dir == "values" {
-			valuesFound = true
-			break
-		}
-	}
-	if !valuesFound {
-		// Check if "values" directory exists
-		if _, err := os.Stat(filepath.Join(directory, "values")); err == nil {
-			valuesDir = append(valuesDir, "values")
-		}
-	}
-
 	if len(valuesDir) == 0 {
-		return fmt.Errorf("no Android values directories found in %s", directory)
+		return fmt.Errorf("no Android values directories found in %s", androidResPath)
 	}
 
 	importCount := 0
@@ -83,9 +76,11 @@ func ImportFromAndroid(ts *models.TranslationSet, directory string) error {
 		lang := "en" // Default language
 		if dir != "values" {
 			lang = strings.TrimPrefix(dir, "values-")
+			// Handle regional variants like values-de-rAT -> de-AT
+			lang = strings.Replace(lang, "-r", "-", 1)
 		}
 
-		file := filepath.Join(directory, dir, "strings.xml")
+		file := filepath.Join(androidResPath, dir, "strings.xml")
 		data, err := os.ReadFile(file)
 		if err != nil {
 			fmt.Printf("Warning: Could not read %s: %v\n", file, err)
@@ -103,7 +98,7 @@ func ImportFromAndroid(ts *models.TranslationSet, directory string) error {
 
 		// Process regular strings
 		for _, str := range resources.Strings {
-			ts.AddOrUpdateTranslation(str.Name, "", lang, str.Value)
+			ts.AddOrUpdateTranslationWithSource(str.Name, "", lang, str.Value, models.SourceAndroid)
 			importCount++
 		}
 
@@ -112,11 +107,11 @@ func ImportFromAndroid(ts *models.TranslationSet, directory string) error {
 			for _, item := range plural.Items {
 				quantity := models.TranslationQuantity(item.Quantity)
 				if quantity == "one" {
-					ts.AddOrUpdatePluralTranslation(plural.Name, "", lang, models.QuantityOne, item.Value)
+					ts.AddOrUpdatePluralTranslationWithSource(plural.Name, "", lang, models.QuantityOne, item.Value, models.SourceAndroid)
 				} else {
 					// Android has many quantity types (zero, one, two, few, many, other)
-					// but I have mapped them all to "other" for simplicity
-					ts.AddOrUpdatePluralTranslation(plural.Name, "", lang, models.QuantityOther, item.Value)
+					// but we map them all to "other" for simplicity
+					ts.AddOrUpdatePluralTranslationWithSource(plural.Name, "", lang, models.QuantityOther, item.Value, models.SourceAndroid)
 				}
 				importCount++
 			}
@@ -128,20 +123,49 @@ func ImportFromAndroid(ts *models.TranslationSet, directory string) error {
 }
 
 // ExportToAndroid exports translations to Android strings.xml files
-func ExportToAndroid(ts *models.TranslationSet, outputDir string) error {
-	if outputDir == "" {
-		outputDir = "."
+func ExportToAndroid(ts *models.TranslationSet, baseDirectory string) error {
+	if baseDirectory == "" {
+		baseDirectory = "."
+	}
+
+	// Export to Android project structure: android/app/src/main/res/
+	androidResPath := filepath.Join(baseDirectory, "android", "app", "src", "main", "res")
+
+	// Get only Android-sourced translations
+	androidTranslations := ts.GetTranslationsBySource(models.SourceAndroid)
+	if len(androidTranslations) == 0 {
+		fmt.Println("No Android translations to export")
+		return nil
 	}
 
 	// For each language, create a strings.xml file in the appropriate directory
 	for _, lang := range ts.Languages {
+		// Check if there are any Android translations for this language
+		hasTranslations := false
+		for _, trans := range androidTranslations {
+			if _, ok := trans.Translations[lang]; ok {
+				hasTranslations = true
+				break
+			}
+		}
+
+		if !hasTranslations {
+			continue
+		}
+
 		// Determine the values directory name
 		dirName := "values"
 		if lang != "en" {
-			dirName = "values-" + lang
+			// Handle regional variants like de-AT -> values-de-rAT
+			if strings.Contains(lang, "-") {
+				parts := strings.Split(lang, "-")
+				dirName = fmt.Sprintf("values-%s-r%s", parts[0], parts[1])
+			} else {
+				dirName = "values-" + lang
+			}
 		}
 
-		dirPath := filepath.Join(outputDir, dirName)
+		dirPath := filepath.Join(androidResPath, dirName)
 
 		// Create directory if it doesn't exist
 		if err := os.MkdirAll(dirPath, 0755); err != nil {
@@ -157,8 +181,8 @@ func ExportToAndroid(ts *models.TranslationSet, outputDir string) error {
 		// Track processed plural keys to avoid duplicates
 		processedPlurals := make(map[string]bool)
 
-		// Add translations
-		for _, trans := range ts.Translations {
+		// Add translations (only Android-sourced ones)
+		for _, trans := range androidTranslations {
 			// Skip keys without translations for this language
 			if _, ok := trans.Translations[lang]; !ok {
 				continue

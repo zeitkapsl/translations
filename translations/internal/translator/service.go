@@ -13,25 +13,21 @@ import (
 	"github.com/zeitkapsl/translations/internal/models"
 )
 
-// TranslationService defines the interface for translation services
 type TranslationService interface {
 	Translate(text, sourceLang, targetLang string) (string, error)
 	Name() string
 }
 
-// DeepLTranslator implements the TranslationService interface using DeepL API
 type DeepLTranslator struct {
 	APIKey string
 }
 
 
 
-// Name returns the name of the translation service
 func (d *DeepLTranslator) Name() string {
 	return "DeepL"
 }
 
-// Translate translates text using DeepL API
 func (d *DeepLTranslator) Translate(text, sourceLang, targetLang string) (string, error) {
 	if d.APIKey == "" {
 		return "", fmt.Errorf("DeepL API key not set. Set DEEPL_API_KEY environment variable")
@@ -88,14 +84,12 @@ func (d *DeepLTranslator) Translate(text, sourceLang, targetLang string) (string
 	return result.Translations[0].Text, nil
 }
 
-// AzureTranslator implements the TranslationService interface using Azure Translator API
 type AzureTranslator struct {
 	Key        string
 	Region     string
 	Endpoint   string
 }
 
-// Name returns the name of the translation service
 func (a *AzureTranslator) Name() string {
 	return "Azure Translator"
 }
@@ -103,11 +97,11 @@ func (a *AzureTranslator) Name() string {
 // Translate translates text using Azure Translator API
 func (a *AzureTranslator) Translate(text, sourceLang, targetLang string) (string, error) {
 	if a.Key == "" {
-		return "", fmt.Errorf("Azure Translator key not set. Set AZURE_TRANSLATOR_KEY environment variable")
+		return "", fmt.Errorf("azure Translator key not set. Set AZURE_TRANSLATOR_KEY environment variable")
 	}
 	
 	if a.Region == "" {
-		return "", fmt.Errorf("Azure Translator region not set. Set AZURE_TRANSLATOR_REGION environment variable")
+		return "", fmt.Errorf("azure Translator region not set. Set AZURE_TRANSLATOR_REGION environment variable")
 	}
 
 	url := a.Endpoint
@@ -202,10 +196,11 @@ func GetTranslationService() TranslationService {
 	panic("No translation service configured. Please set either DEEPL_API_KEY or both AZURE_TRANSLATOR_KEY and AZURE_TRANSLATOR_REGION environment variables.")
 }
 
-// AutoTranslate translates missing strings in the translation set
+
 func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, error) {
 	sourceLang := "en"
 	translatedCount := 0
+	requestCount := 0 //counter for rate limiting
 
 	fmt.Printf("Using %s for translation\n", service.Name())
 
@@ -227,6 +222,12 @@ func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, 
 		}
 
 		for _, targetLang := range baseLanguages {
+			// Rate limit: pause after every 70 requests
+			if requestCount > 0 && requestCount%70 == 0 {
+				fmt.Println("Rate limit reached, sleeping for 60 seconds...")
+				time.Sleep(60 * time.Second)
+			}
+
 			if trans.Type == models.TypeSingular {
 				if _, ok := trans.Translations[targetLang]; ok && len(trans.Translations[targetLang]) > 0 {
 					continue
@@ -239,6 +240,8 @@ func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, 
 
 				fmt.Printf("Translating [%s]: %s\n", targetLang, sourceText)
 				translatedText, err := service.Translate(sourceText, sourceLang, targetLang)
+				requestCount++
+
 				if err != nil {
 					fmt.Printf("Error translating to %s: %v\n", targetLang, err)
 					continue
@@ -252,6 +255,7 @@ func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, 
 				}
 				ts.Translations[i].Translations[targetLang][models.QuantityOne] = translatedText
 				translatedCount++
+
 			} else {
 				targetTranslations, ok := trans.Translations[targetLang]
 				if !ok {
@@ -266,6 +270,7 @@ func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, 
 					if _, ok := targetTranslations[models.QuantityOne]; !ok || targetTranslations[models.QuantityOne] == "" {
 						fmt.Printf("Translating [%s] singular: %s\n", targetLang, sourceOne)
 						translatedOne, err := service.Translate(sourceOne, sourceLang, targetLang)
+						requestCount++
 						if err != nil {
 							fmt.Printf("Error translating singular to %s: %v\n", targetLang, err)
 						} else {
@@ -279,6 +284,7 @@ func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, 
 					if _, ok := targetTranslations[models.QuantityOther]; !ok || targetTranslations[models.QuantityOther] == "" {
 						fmt.Printf("Translating [%s] plural: %s\n", targetLang, sourceOther)
 						translatedOther, err := service.Translate(sourceOther, sourceLang, targetLang)
+						requestCount++
 						if err != nil {
 							fmt.Printf("Error translating plural to %s: %v\n", targetLang, err)
 						} else {
@@ -293,3 +299,4 @@ func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, 
 
 	return translatedCount, nil
 }
+

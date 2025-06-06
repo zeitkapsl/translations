@@ -18,11 +18,22 @@ const (
 	QuantityOther TranslationQuantity = "other"
 )
 
+// TranslationSource represents where a translation was imported from
+type TranslationSource string
+
+const (
+	SourceIOS     TranslationSource = "ios"
+	SourceAndroid TranslationSource = "android"
+	SourceWeb     TranslationSource = "web"
+	SourceManual  TranslationSource = "manual" // For manually added translations
+)
+
 // Translation represents a single translation entry
 type Translation struct {
 	Key          string
 	Comment      string
 	Type         TranslationType                           // singular or plural
+	Source       TranslationSource                         // where this translation was imported from
 	Quantities   map[TranslationQuantity]string            // For plural forms (only used if Type is TypePlural)
 	Translations map[string]map[TranslationQuantity]string // language -> quantity -> translation
 	// For singular translations, we only use QuantityOne
@@ -107,13 +118,34 @@ func (ts *TranslationSet) GetPluralTranslation(key, lang string, quantity Transl
 	return ""
 }
 
+// GetTranslationsBySource returns all translations from a specific source
+func (ts *TranslationSet) GetTranslationsBySource(source TranslationSource) []Translation {
+	var result []Translation
+	for _, t := range ts.Translations {
+		if t.Source == source {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
 // AddOrUpdateTranslation adds a new translation or updates an existing one
 func (ts *TranslationSet) AddOrUpdateTranslation(key, comment, lang string, value string) {
-	ts.AddOrUpdatePluralTranslation(key, comment, lang, QuantityOne, value)
+	ts.AddOrUpdateTranslationWithSource(key, comment, lang, value, SourceManual)
+}
+
+// AddOrUpdateTranslationWithSource adds a new translation or updates an existing one with source tracking
+func (ts *TranslationSet) AddOrUpdateTranslationWithSource(key, comment, lang string, value string, source TranslationSource) {
+	ts.AddOrUpdatePluralTranslationWithSource(key, comment, lang, QuantityOne, value, source)
 }
 
 // AddOrUpdatePluralTranslation adds a new translation or updates an existing one with plural support
 func (ts *TranslationSet) AddOrUpdatePluralTranslation(key, comment, lang string, quantity TranslationQuantity, value string) {
+	ts.AddOrUpdatePluralTranslationWithSource(key, comment, lang, quantity, value, SourceManual)
+}
+
+// AddOrUpdatePluralTranslationWithSource adds a new translation or updates an existing one with plural support and source tracking
+func (ts *TranslationSet) AddOrUpdatePluralTranslationWithSource(key, comment, lang string, quantity TranslationQuantity, value string, source TranslationSource) {
 	// Find existing translation
 	for i, t := range ts.Translations {
 		if t.Key == key {
@@ -133,6 +165,11 @@ func (ts *TranslationSet) AddOrUpdatePluralTranslation(key, comment, lang string
 				ts.Translations[i].Comment = comment
 			}
 
+			// Update source if it was manual and now we have a specific source
+			if ts.Translations[i].Source == SourceManual && source != SourceManual {
+				ts.Translations[i].Source = source
+			}
+
 			// Update type if adding plural forms
 			if quantity != QuantityOne {
 				ts.Translations[i].Type = TypePlural
@@ -147,6 +184,7 @@ func (ts *TranslationSet) AddOrUpdatePluralTranslation(key, comment, lang string
 		Key:     key,
 		Comment: comment,
 		Type:    TypeSingular, // Default to singular
+		Source:  source,
 		Translations: map[string]map[TranslationQuantity]string{
 			lang: {
 				quantity: value,

@@ -35,80 +35,90 @@ type XCStringsUnit struct {
 }
 
 // ImportFromXCStrings imports translations from iOS .xcstrings files
-func ImportFromXCStrings(ts *models.TranslationSet, directory string) error {
-	if directory == "" {
-		directory = "."
+func ImportFromXCStrings(ts *models.TranslationSet, baseDirectory string) error {
+	if baseDirectory == "" {
+		baseDirectory = "."
 	}
 
-	// Find .xcstrings files
-	files, err := filepath.Glob(filepath.Join(directory, "*.xcstrings"))
-	if err != nil {
-		return fmt.Errorf("error finding .xcstrings files: %v", err)
-	}
-
-	if len(files) == 0 {
-		return fmt.Errorf("no .xcstrings files found in %s", directory)
+	// Look for iOS project structure: ios/Zeitkapsl/Supporting Files/
+	iOSStringsPath := filepath.Join(baseDirectory, "ios", "Zeitkapsl", "Supporting Files", "Localizable.xcstrings")
+	
+	// Check if the iOS strings file exists
+	if _, err := os.Stat(iOSStringsPath); os.IsNotExist(err) {
+		return fmt.Errorf("iOS Localizable.xcstrings file not found at %s", iOSStringsPath)
 	}
 
 	importCount := 0
 
-	for _, file := range files {
-		fmt.Printf("Importing from %s...\n", file)
+	fmt.Printf("Importing from %s...\n", iOSStringsPath)
 
-		data, err := os.ReadFile(file)
-		if err != nil {
-			fmt.Printf("Error reading %s: %v\n", file, err)
-			continue
-		}
+	data, err := os.ReadFile(iOSStringsPath)
+	if err != nil {
+		return fmt.Errorf("error reading %s: %v", iOSStringsPath, err)
+	}
 
-		var xcstrings XCStringsFile
-		if err := json.Unmarshal(data, &xcstrings); err != nil {
-			fmt.Printf("Error parsing %s: %v\n", file, err)
-			continue
-		}
+	var xcstrings XCStringsFile
+	if err := json.Unmarshal(data, &xcstrings); err != nil {
+		return fmt.Errorf("error parsing %s: %v", iOSStringsPath, err)
+	}
 
-		// Add source language if not already present
-		ts.AddLanguage(xcstrings.SourceLanguage)
+	// Add source language if not already present
+	ts.AddLanguage(xcstrings.SourceLanguage)
 
-		// Process strings
-		for key, entry := range xcstrings.Strings {
-			comment := entry.Comment
+	// Process strings
+	for key, entry := range xcstrings.Strings {
+		comment := entry.Comment
 
-			// Process localizations
-			for lang, localization := range entry.Localizations {
-				// Only add translations that are in "translated" state and have a value
-				if localization.StringUnit.State == "translated" && localization.StringUnit.Value != "" {
-					// Check if it's a plural key
-					if models.IsPluralKey(key) {
-						baseKey := models.NormalizeKey(key)
-						if strings.HasSuffix(key, ".singular") {
-							ts.AddOrUpdatePluralTranslation(baseKey, comment, lang, models.QuantityOne, localization.StringUnit.Value)
-						} else if strings.HasSuffix(key, ".plural") {
-							ts.AddOrUpdatePluralTranslation(baseKey, comment, lang, models.QuantityOther, localization.StringUnit.Value)
-						} else {
-							ts.AddOrUpdateTranslation(key, comment, lang, localization.StringUnit.Value)
-						}
+		// Process localizations
+		for lang, localization := range entry.Localizations {
+			// Only add translations that are in "translated" state and have a value
+			if localization.StringUnit.State == "translated" && localization.StringUnit.Value != "" {
+				// Check if it's a plural key
+				if models.IsPluralKey(key) {
+					baseKey := models.NormalizeKey(key)
+					if strings.HasSuffix(key, ".singular") {
+						ts.AddOrUpdatePluralTranslationWithSource(baseKey, comment, lang, models.QuantityOne, localization.StringUnit.Value, models.SourceIOS)
+					} else if strings.HasSuffix(key, ".plural") {
+						ts.AddOrUpdatePluralTranslationWithSource(baseKey, comment, lang, models.QuantityOther, localization.StringUnit.Value, models.SourceIOS)
 					} else {
-						ts.AddOrUpdateTranslation(key, comment, lang, localization.StringUnit.Value)
+						ts.AddOrUpdateTranslationWithSource(key, comment, lang, localization.StringUnit.Value, models.SourceIOS)
 					}
-
-					// Add language if not already present
-					ts.AddLanguage(lang)
-
-					importCount++
+				} else {
+					ts.AddOrUpdateTranslationWithSource(key, comment, lang, localization.StringUnit.Value, models.SourceIOS)
 				}
+
+				// Add language if not already present
+				ts.AddLanguage(lang)
+
+				importCount++
 			}
 		}
 	}
 
-	fmt.Printf("Imported %d translations from iOS .xcstrings files\n", importCount)
+	fmt.Printf("Imported %d translations from iOS .xcstrings file\n", importCount)
 	return nil
 }
 
 // ExportToXCStrings exports translations to iOS .xcstrings format
-func ExportToXCStrings(ts *models.TranslationSet, outputFile string) error {
-	if outputFile == "" {
-		outputFile = "Localizable.xcstrings"
+func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
+	if baseDirectory == "" {
+		baseDirectory = "."
+	}
+
+	// Export to iOS project structure: ios/Zeitkapsl/Supporting Files/
+	iOSStringsDir := filepath.Join(baseDirectory, "ios", "Zeitkapsl", "Supporting Files")
+	outputFile := filepath.Join(iOSStringsDir, "Localizable.xcstrings")
+
+	// Get only iOS-sourced translations
+	iOSTranslations := ts.GetTranslationsBySource(models.SourceIOS)
+	if len(iOSTranslations) == 0 {
+		fmt.Println("No iOS translations to export")
+		return nil
+	}
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(iOSStringsDir, 0755); err != nil {
+		return fmt.Errorf("error creating directory %s: %v", iOSStringsDir, err)
 	}
 
 	// Create xcstrings structure
@@ -118,14 +128,12 @@ func ExportToXCStrings(ts *models.TranslationSet, outputFile string) error {
 		Strings:        make(map[string]XCStringsEntry),
 	}
 
-	// Process all translations
-	for _, trans := range ts.Translations {
+	// Process all iOS translations
+	for _, trans := range iOSTranslations {
 		var key string
 
 		// For plural forms, we need special handling
 		if trans.Type == models.TypePlural {
-			// iOS handles plurals differently in SwiftUI vs older frameworks
-			// We'll create separate entries for singular and plural forms
 
 			// Singular form
 			if oneTrans, ok := trans.Translations["en"][models.QuantityOne]; ok && oneTrans != "" {
