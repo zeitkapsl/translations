@@ -1,218 +1,517 @@
 package models
 
-import "strings"
-
-// TranslationType represents the type of translation (singular, plural with specific quantities)
-type TranslationType string
-
-const (
-	TypeSingular TranslationType = "singular"
-	TypePlural   TranslationType = "plural"
+import (
+	"fmt"
+	"sort"
+	"strings"
 )
 
-// TranslationQuantity represents the quantity for plural forms
-type TranslationQuantity string
-
-const (
-	QuantityOne   TranslationQuantity = "one"
-	QuantityOther TranslationQuantity = "other"
-)
-
-// TranslationSource represents where a translation was imported from
-type TranslationSource string
-
-const (
-	SourceIOS     TranslationSource = "ios"
-	SourceAndroid TranslationSource = "android"
-	SourceWeb     TranslationSource = "web"
-	SourceManual  TranslationSource = "manual" // For manually added translations
-)
-
-// Translation represents a single translation entry
-type Translation struct {
-	Key          string
-	Comment      string
-	Type         TranslationType                           // singular or plural
-	Source       TranslationSource                         // where this translation was imported from
-	Quantities   map[TranslationQuantity]string            // For plural forms (only used if Type is TypePlural)
-	Translations map[string]map[TranslationQuantity]string // language -> quantity -> translation
-	// For singular translations, we only use QuantityOne
+// TranslationRow represents a single translation entry
+type TranslationRow struct {
+	Key     string
+	Comment string
+	Type    string // "singular" or "plural"
+	Values  map[string]TranslationValues
 }
 
-// TranslationSet contains all translations and language metadata
-type TranslationSet struct {
-	Translations []Translation
-	Languages    []string // All languages including regions
+// TranslationValues holds translation values for different quantities
+type TranslationValues struct {
+	One   string // For singular or plural "one"
+	Other string // For plural "other"
 }
 
-// NewTranslationSet creates a new empty translation set with default language
-func NewTranslationSet() *TranslationSet {
-	return &TranslationSet{
-		Translations: []Translation{},
-		Languages:    []string{"en"}, // Default language is English
+// TranslationManager manages all translations and language metadata
+type TranslationManager struct {
+	Translations []TranslationRow
+	Languages    []string
+	BasePath     string
+}
+
+// NewTranslationManager creates a new translation manager
+func NewTranslationManager(basePath string) *TranslationManager {
+	return &TranslationManager{
+		Translations: make([]TranslationRow, 0),
+		Languages:    make([]string, 0),
+		BasePath:     basePath,
 	}
 }
 
-// AddLanguage adds a new language if it doesn't already exist
-func (ts *TranslationSet) AddLanguage(lang string) bool {
-	// Check if language already exists
-	for _, l := range ts.Languages {
-		if l == lang {
-			return false // Language already exists
+// EnsureLanguage adds a language if it doesn't exist, with normalization
+func (tm *TranslationManager) EnsureLanguage(lang string) {
+	normalizedLang := tm.normalizeLanguageCode(lang)
+
+	for _, l := range tm.Languages {
+		if l == normalizedLang {
+			return
 		}
 	}
-
-	// Add new language
-	ts.Languages = append(ts.Languages, lang)
-	return true
+	tm.Languages = append(tm.Languages, normalizedLang)
+	sort.Strings(tm.Languages)
 }
 
-// HasTranslation checks if a key has a translation in the specified language
-func (ts *TranslationSet) HasTranslation(key, lang string) bool {
-	for _, t := range ts.Translations {
-		if t.Key == key {
-			if translations, ok := t.Translations[lang]; ok && len(translations) > 0 {
-				return true
-			}
-			return false
-		}
+// normalizeLanguageCode normalizes common language code variations
+func (tm *TranslationManager) normalizeLanguageCode(lang string) string {
+	switch lang {
+	case "en-US":
+		return "en" // Treat en-US as en
+	case "de-DE":
+		return "de" // Treat de-DE as de
+	default:
+		return lang
 	}
-	return false
 }
 
-// GetTranslation gets a translation for a key in the specified language
-// Returns empty string if not found
-func (ts *TranslationSet) GetTranslation(key, lang string) string {
-	for _, t := range ts.Translations {
-		if t.Key == key {
-			if translations, ok := t.Translations[lang]; ok {
-				// For singular, return the "one" quantity (or any available)
-				if t.Type == TypeSingular {
-					if val, ok := translations[QuantityOne]; ok {
-						return val
-					}
-				}
-				// For plural, return the "other" quantity if requested
-				if val, ok := translations[QuantityOther]; ok {
-					return val
-				}
+// SetTranslation adds or updates a singular translation
+func (tm *TranslationManager) SetTranslation(key, lang, value, comment, transType string) {
+	normalizedLang := tm.normalizeLanguageCode(lang)
+
+	// Find existing row
+	for i, row := range tm.Translations {
+		if row.Key == key {
+			if row.Values == nil {
+				row.Values = make(map[string]TranslationValues)
 			}
-			return ""
-		}
-	}
-	return ""
-}
-
-// GetPluralTranslation gets plural translations for a key
-func (ts *TranslationSet) GetPluralTranslation(key, lang string, quantity TranslationQuantity) string {
-	for _, t := range ts.Translations {
-		if t.Key == key {
-			if translations, ok := t.Translations[lang]; ok {
-				if val, ok := translations[quantity]; ok {
-					return val
-				}
+			values := row.Values[normalizedLang]
+			values.One = value
+			row.Values[normalizedLang] = values
+			if comment != "" && row.Comment == "" {
+				row.Comment = comment
 			}
-			return ""
-		}
-	}
-	return ""
-}
-
-// GetTranslationsBySource returns all translations from a specific source
-func (ts *TranslationSet) GetTranslationsBySource(source TranslationSource) []Translation {
-	var result []Translation
-	for _, t := range ts.Translations {
-		if t.Source == source {
-			result = append(result, t)
-		}
-	}
-	return result
-}
-
-// AddOrUpdateTranslation adds a new translation or updates an existing one
-func (ts *TranslationSet) AddOrUpdateTranslation(key, comment, lang string, value string) {
-	ts.AddOrUpdateTranslationWithSource(key, comment, lang, value, SourceManual)
-}
-
-// AddOrUpdateTranslationWithSource adds a new translation or updates an existing one with source tracking
-func (ts *TranslationSet) AddOrUpdateTranslationWithSource(key, comment, lang string, value string, source TranslationSource) {
-	ts.AddOrUpdatePluralTranslationWithSource(key, comment, lang, QuantityOne, value, source)
-}
-
-// AddOrUpdatePluralTranslation adds a new translation or updates an existing one with plural support
-func (ts *TranslationSet) AddOrUpdatePluralTranslation(key, comment, lang string, quantity TranslationQuantity, value string) {
-	ts.AddOrUpdatePluralTranslationWithSource(key, comment, lang, quantity, value, SourceManual)
-}
-
-// AddOrUpdatePluralTranslationWithSource adds a new translation or updates an existing one with plural support and source tracking
-func (ts *TranslationSet) AddOrUpdatePluralTranslationWithSource(key, comment, lang string, quantity TranslationQuantity, value string, source TranslationSource) {
-	// Find existing translation
-	for i, t := range ts.Translations {
-		if t.Key == key {
-			// Update existing
-			if t.Translations == nil {
-				ts.Translations[i].Translations = make(map[string]map[TranslationQuantity]string)
-			}
-
-			if ts.Translations[i].Translations[lang] == nil {
-				ts.Translations[i].Translations[lang] = make(map[TranslationQuantity]string)
-			}
-
-			ts.Translations[i].Translations[lang][quantity] = value
-
-			// Update comment if provided and current is empty
-			if comment != "" && ts.Translations[i].Comment == "" {
-				ts.Translations[i].Comment = comment
-			}
-
-			// Update source if it was manual and now we have a specific source
-			if ts.Translations[i].Source == SourceManual && source != SourceManual {
-				ts.Translations[i].Source = source
-			}
-
-			// Update type if adding plural forms
-			if quantity != QuantityOne {
-				ts.Translations[i].Type = TypePlural
-			}
-
+			tm.Translations[i] = row
 			return
 		}
 	}
 
-	// Create new
-	newTrans := Translation{
+	// Create new row
+	row := TranslationRow{
 		Key:     key,
 		Comment: comment,
-		Type:    TypeSingular, // Default to singular
-		Source:  source,
-		Translations: map[string]map[TranslationQuantity]string{
-			lang: {
-				quantity: value,
-			},
-		},
+		Type:    transType,
+		Values:  map[string]TranslationValues{normalizedLang: {One: value}},
 	}
-
-	// If adding a plural form, update type
-	if quantity != QuantityOne {
-		newTrans.Type = TypePlural
-	}
-
-	ts.Translations = append(ts.Translations, newTrans)
+	tm.Translations = append(tm.Translations, row)
 }
 
-// IsPluralKey determines if a key is for a plural translation
-// Often keys have patterns like "key.singular" and "key.plural"
-func IsPluralKey(key string) bool {
-	return strings.HasSuffix(key, ".plural")
+// SetPluralTranslation adds or updates a plural translation
+func (tm *TranslationManager) SetPluralTranslation(key, lang, oneValue, otherValue, comment string) {
+	normalizedLang := tm.normalizeLanguageCode(lang)
+
+	// Find existing row
+	for i, row := range tm.Translations {
+		if row.Key == key {
+			if row.Values == nil {
+				row.Values = make(map[string]TranslationValues)
+			}
+			row.Values[normalizedLang] = TranslationValues{One: oneValue, Other: otherValue}
+			if comment != "" && row.Comment == "" {
+				row.Comment = comment
+			}
+			row.Type = "plural"
+			tm.Translations[i] = row
+			return
+		}
+	}
+
+	// Create new row
+	row := TranslationRow{
+		Key:     key,
+		Comment: comment,
+		Type:    "plural",
+		Values:  map[string]TranslationValues{normalizedLang: {One: oneValue, Other: otherValue}},
+	}
+	tm.Translations = append(tm.Translations, row)
 }
 
-// NormalizeKey extracts the base key without plural suffix
-func NormalizeKey(key string) string {
-	if strings.HasSuffix(key, ".singular") {
-		return key[:len(key)-9] // Remove .singular
+// SetPluralSingular sets only the singular form of a plural translation
+func (tm *TranslationManager) SetPluralSingular(key, lang, value, comment string) {
+	normalizedLang := tm.normalizeLanguageCode(lang)
+
+	// Find existing row
+	for i, row := range tm.Translations {
+		if row.Key == key {
+			if row.Values == nil {
+				row.Values = make(map[string]TranslationValues)
+			}
+			values := row.Values[normalizedLang]
+			values.One = value
+			row.Values[normalizedLang] = values
+			row.Type = "plural"
+			if comment != "" && row.Comment == "" {
+				row.Comment = comment
+			}
+			tm.Translations[i] = row
+			return
+		}
 	}
-	if strings.HasSuffix(key, ".plural") {
-		return key[:len(key)-7] // Remove .plural
+
+	// Create new row
+	row := TranslationRow{
+		Key:     key,
+		Comment: comment,
+		Type:    "plural",
+		Values:  map[string]TranslationValues{normalizedLang: {One: value}},
 	}
-	return key
+	tm.Translations = append(tm.Translations, row)
+}
+
+// SetPluralOther sets only the other form of a plural translation
+func (tm *TranslationManager) SetPluralOther(key, lang, value, comment string) {
+	normalizedLang := tm.normalizeLanguageCode(lang)
+
+	// Find existing row
+	for i, row := range tm.Translations {
+		if row.Key == key {
+			if row.Values == nil {
+				row.Values = make(map[string]TranslationValues)
+			}
+			values := row.Values[normalizedLang]
+			values.Other = value
+			row.Values[normalizedLang] = values
+			row.Type = "plural"
+			tm.Translations[i] = row
+			return
+		}
+	}
+
+	// Create new row
+	row := TranslationRow{
+		Key:     key,
+		Comment: comment,
+		Type:    "plural",
+		Values:  map[string]TranslationValues{normalizedLang: {Other: value}},
+	}
+	tm.Translations = append(tm.Translations, row)
+}
+
+// GetTranslationWithFallback gets translation with regional fallback support
+func (tm *TranslationManager) GetTranslationWithFallback(row TranslationRow, lang string) TranslationValues {
+	// Direct match
+	if values, exists := row.Values[lang]; exists {
+		return values
+	}
+
+	// Regional fallback (de-AT -> de)
+	if strings.Contains(lang, "-") {
+		baseLang := strings.Split(lang, "-")[0]
+		if values, exists := row.Values[baseLang]; exists {
+			return values
+		}
+	}
+
+	// English fallback
+	if values, exists := row.Values["en"]; exists {
+		return values
+	}
+
+	return TranslationValues{}
+}
+
+// AddLanguage adds a new language
+func (tm *TranslationManager) AddLanguage(lang string) {
+	tm.EnsureLanguage(lang)
+	fmt.Printf("Added language: %s\n", lang)
+}
+
+// AddRegion adds a new region
+func (tm *TranslationManager) AddRegion(region string) {
+	tm.EnsureLanguage(region)
+	fmt.Printf("Added region: %s\n", region)
+}
+
+// GetStats displays basic translation statistics
+func (tm *TranslationManager) GetStats() {
+	fmt.Printf("Translation Statistics:\n")
+	fmt.Printf("Total languages: %d\n", len(tm.Languages))
+	fmt.Printf("Total strings: %d\n", len(tm.Translations))
+	fmt.Printf("\nLanguages: %s\n", strings.Join(tm.Languages, ", "))
+
+	// Calculate missing translations
+	if len(tm.Translations) == 0 {
+		return
+	}
+
+	fmt.Printf("\nMissing translations per language:\n")
+	for _, lang := range tm.Languages {
+		if lang == "en" {
+			continue // Skip English as source
+		}
+
+		missing := 0
+		total := 0
+
+		for _, row := range tm.Translations {
+			// Check if there's an English version
+			if enValues, ok := row.Values["en"]; ok && (enValues.One != "" || enValues.Other != "") {
+				total++
+
+				values := tm.GetTranslationWithFallback(row, lang)
+				if row.Type == "plural" {
+					if values.One == "" || values.Other == "" {
+						missing++
+					}
+				} else {
+					if values.One == "" {
+						missing++
+					}
+				}
+			}
+		}
+
+		if total > 0 {
+			percentage := float64(total-missing) / float64(total) * 100
+			fmt.Printf("  %s: %d missing (%.1f%% complete)\n", lang, missing, percentage)
+		}
+	}
+}
+
+// GetDetailedStats displays detailed translation statistics with source analysis
+func (tm *TranslationManager) GetDetailedStats() {
+	fmt.Printf("Detailed Translation Statistics:\n")
+	fmt.Printf("================================\n")
+	fmt.Printf("Total languages: %d\n", len(tm.Languages))
+	fmt.Printf("Total translation keys: %d\n", len(tm.Translations))
+	fmt.Printf("Languages: %s\n\n", strings.Join(tm.Languages, ", "))
+
+	// Analyze source coverage
+	sourceCoverage := make(map[string]int)
+	totalTranslatableKeys := 0
+
+	for _, row := range tm.Translations {
+		hasAnyContent := false
+		for lang, values := range row.Values {
+			if values.One != "" || values.Other != "" {
+				sourceCoverage[lang]++
+				hasAnyContent = true
+			}
+		}
+		if hasAnyContent {
+			totalTranslatableKeys++
+		}
+	}
+
+	fmt.Printf("Source Content Analysis:\n")
+	fmt.Printf("========================\n")
+	fmt.Printf("Keys with translatable content: %d\n", totalTranslatableKeys)
+	fmt.Printf("Source language coverage:\n")
+	for _, lang := range tm.Languages {
+		if count, exists := sourceCoverage[lang]; exists {
+			percentage := float64(count) / float64(totalTranslatableKeys) * 100
+			fmt.Printf("  %s: %d keys (%.1f%% of translatable content)\n", lang, count, percentage)
+		} else {
+			fmt.Printf("  %s: 0 keys (0.0%% of translatable content)\n", lang)
+		}
+	}
+
+	fmt.Printf("\nTranslation Completeness per Language:\n")
+	fmt.Printf("======================================\n")
+
+	for _, lang := range tm.Languages {
+		if lang == "en" || lang == "de" {
+			continue // Skip source languages
+		}
+
+		missing := 0
+		total := 0
+		availableFromEn := 0
+		availableFromDe := 0
+		availableFromOther := 0
+
+		for _, row := range tm.Translations {
+			// Check what sources are available
+			enValues, hasEn := row.Values["en"]
+			deValues, hasDe := row.Values["de"]
+
+			hasEnContent := hasEn && (enValues.One != "" || enValues.Other != "")
+			hasDeContent := hasDe && (deValues.One != "" || deValues.Other != "")
+
+			// Count what's available as source material
+			if hasEnContent {
+				availableFromEn++
+			}
+			if hasDeContent {
+				availableFromDe++
+			}
+
+			// Check if ANY language has content for this key
+			hasAnySource := hasEnContent || hasDeContent
+			for otherLang, otherValues := range row.Values {
+				if otherLang != lang && otherLang != "en" && otherLang != "de" {
+					if otherValues.One != "" || otherValues.Other != "" {
+						hasAnySource = true
+						if !hasEnContent && !hasDeContent {
+							availableFromOther++
+						}
+						break
+					}
+				}
+			}
+
+			if !hasAnySource {
+				continue // Skip keys with no source content at all
+			}
+
+			total++
+
+			// Check if target language has translation
+			targetValues := tm.GetTranslationWithFallback(row, lang)
+			if row.Type == "plural" {
+				if targetValues.One == "" || targetValues.Other == "" {
+					missing++
+				}
+			} else {
+				if targetValues.One == "" {
+					missing++
+				}
+			}
+		}
+
+		if total > 0 {
+			percentage := float64(total-missing) / float64(total) * 100
+			fmt.Printf("%s: %d missing of %d total (%.1f%% complete)\n", lang, missing, total, percentage)
+			fmt.Printf("  Available from English: %d keys\n", availableFromEn)
+			fmt.Printf("  Available from German: %d keys\n", availableFromDe)
+			fmt.Printf("  Available from other languages: %d keys\n", availableFromOther)
+			fmt.Printf("  Potential max translations: %d keys\n\n", availableFromEn+availableFromDe+availableFromOther)
+		}
+	}
+
+	// Show some example missing translations
+	fmt.Printf("Example Missing Translations (showing first 5):\n")
+	fmt.Printf("==============================================\n")
+
+	for _, lang := range tm.Languages {
+		if lang == "en" || lang == "de" {
+			continue
+		}
+
+		fmt.Printf("\nMissing in %s:\n", lang)
+		count := 0
+		for _, row := range tm.Translations {
+			if count >= 5 {
+				break
+			}
+
+			// Check if we have source content
+			enValues, hasEn := row.Values["en"]
+			deValues, hasDe := row.Values["de"]
+			hasEnContent := hasEn && (enValues.One != "" || enValues.Other != "")
+			hasDeContent := hasDe && (deValues.One != "" || deValues.Other != "")
+
+			if !hasEnContent && !hasDeContent {
+				continue
+			}
+
+			// Check if target is missing
+			targetValues := tm.GetTranslationWithFallback(row, lang)
+			isMissing := false
+			if row.Type == "plural" {
+				isMissing = targetValues.One == "" || targetValues.Other == ""
+			} else {
+				isMissing = targetValues.One == ""
+			}
+
+			if isMissing {
+				sourceText := ""
+				sourceLang := ""
+				if hasEnContent {
+					sourceText = enValues.One
+					if sourceText == "" {
+						sourceText = enValues.Other
+					}
+					sourceLang = "en"
+				} else if hasDeContent {
+					sourceText = deValues.One
+					if sourceText == "" {
+						sourceText = deValues.Other
+					}
+					sourceLang = "de"
+				}
+
+				if sourceText != "" {
+					fmt.Printf("  %s (%s): \"%s\"\n", row.Key, sourceLang, sourceText)
+					count++
+				}
+			}
+		}
+
+		if count == 0 {
+			fmt.Printf("  No missing translations!\n")
+		}
+	}
+}
+
+// CleanupLanguages merges redundant language variants
+func (tm *TranslationManager) CleanupLanguages() int {
+	mergeCount := 0
+
+	// Define merge rules
+	mergeRules := map[string]string{
+		"en-US": "en",
+		"de-DE": "de",
+	}
+
+	// Process each translation row
+	for i, row := range tm.Translations {
+		newValues := make(map[string]TranslationValues)
+
+		for lang, values := range row.Values {
+			targetLang := lang
+			if mergeTo, shouldMerge := mergeRules[lang]; shouldMerge {
+				targetLang = mergeTo
+				mergeCount++
+			}
+
+			// Merge values if target already exists
+			if existing, exists := newValues[targetLang]; exists {
+				// Prefer non-empty values
+				merged := existing
+				if merged.One == "" && values.One != "" {
+					merged.One = values.One
+				}
+				if merged.Other == "" && values.Other != "" {
+					merged.Other = values.Other
+				}
+				newValues[targetLang] = merged
+			} else {
+				newValues[targetLang] = values
+			}
+		}
+
+		tm.Translations[i].Values = newValues
+	}
+
+	// Update language list
+	newLanguages := []string{}
+	for _, lang := range tm.Languages {
+		if mergeTo, shouldMerge := mergeRules[lang]; shouldMerge {
+			// Check if target doesn't already exist
+			found := false
+			for _, existing := range newLanguages {
+				if existing == mergeTo {
+					found = true
+					break
+				}
+			}
+			if !found {
+				newLanguages = append(newLanguages, mergeTo)
+			}
+		} else {
+			newLanguages = append(newLanguages, lang)
+		}
+	}
+
+	tm.Languages = newLanguages
+	sort.Strings(tm.Languages)
+
+	return mergeCount
+}
+
+// Helper function to check if slice contains item
+func Contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

@@ -35,14 +35,14 @@ type XCStringsUnit struct {
 }
 
 // ImportFromXCStrings imports translations from iOS .xcstrings files
-func ImportFromXCStrings(ts *models.TranslationSet, baseDirectory string) error {
+func ImportFromXCStrings(tm *models.TranslationManager, baseDirectory string) error {
 	if baseDirectory == "" {
 		baseDirectory = "."
 	}
 
 	// Look for iOS project structure: ios/Zeitkapsl/Supporting Files/
 	iOSStringsPath := filepath.Join(baseDirectory, "ios", "Zeitkapsl", "Supporting Files", "Localizable.xcstrings")
-	
+
 	// Check if the iOS strings file exists
 	if _, err := os.Stat(iOSStringsPath); os.IsNotExist(err) {
 		return fmt.Errorf("iOS Localizable.xcstrings file not found at %s", iOSStringsPath)
@@ -63,7 +63,7 @@ func ImportFromXCStrings(ts *models.TranslationSet, baseDirectory string) error 
 	}
 
 	// Add source language if not already present
-	ts.AddLanguage(xcstrings.SourceLanguage)
+	tm.EnsureLanguage(xcstrings.SourceLanguage)
 
 	// Process strings
 	for key, entry := range xcstrings.Strings {
@@ -74,21 +74,21 @@ func ImportFromXCStrings(ts *models.TranslationSet, baseDirectory string) error 
 			// Only add translations that are in "translated" state and have a value
 			if localization.StringUnit.State == "translated" && localization.StringUnit.Value != "" {
 				// Check if it's a plural key
-				if models.IsPluralKey(key) {
-					baseKey := models.NormalizeKey(key)
+				if isPluralKey(key) {
+					baseKey := normalizeKey(key)
 					if strings.HasSuffix(key, ".singular") {
-						ts.AddOrUpdatePluralTranslationWithSource(baseKey, comment, lang, models.QuantityOne, localization.StringUnit.Value, models.SourceIOS)
+						tm.SetPluralSingular(baseKey, lang, localization.StringUnit.Value, comment)
 					} else if strings.HasSuffix(key, ".plural") {
-						ts.AddOrUpdatePluralTranslationWithSource(baseKey, comment, lang, models.QuantityOther, localization.StringUnit.Value, models.SourceIOS)
+						tm.SetPluralOther(baseKey, lang, localization.StringUnit.Value, comment)
 					} else {
-						ts.AddOrUpdateTranslationWithSource(key, comment, lang, localization.StringUnit.Value, models.SourceIOS)
+						tm.SetTranslation(key, lang, localization.StringUnit.Value, comment, "singular")
 					}
 				} else {
-					ts.AddOrUpdateTranslationWithSource(key, comment, lang, localization.StringUnit.Value, models.SourceIOS)
+					tm.SetTranslation(key, lang, localization.StringUnit.Value, comment, "singular")
 				}
 
 				// Add language if not already present
-				ts.AddLanguage(lang)
+				tm.EnsureLanguage(lang)
 
 				importCount++
 			}
@@ -100,7 +100,7 @@ func ImportFromXCStrings(ts *models.TranslationSet, baseDirectory string) error 
 }
 
 // ExportToXCStrings exports translations to iOS .xcstrings format
-func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
+func ExportToXCStrings(tm *models.TranslationManager, baseDirectory string) error {
 	if baseDirectory == "" {
 		baseDirectory = "."
 	}
@@ -108,13 +108,6 @@ func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
 	// Export to iOS project structure: ios/Zeitkapsl/Supporting Files/
 	iOSStringsDir := filepath.Join(baseDirectory, "ios", "Zeitkapsl", "Supporting Files")
 	outputFile := filepath.Join(iOSStringsDir, "Localizable.xcstrings")
-
-	// Get only iOS-sourced translations
-	iOSTranslations := ts.GetTranslationsBySource(models.SourceIOS)
-	if len(iOSTranslations) == 0 {
-		fmt.Println("No iOS translations to export")
-		return nil
-	}
 
 	// Create directory if it doesn't exist
 	if err := os.MkdirAll(iOSStringsDir, 0755); err != nil {
@@ -128,15 +121,11 @@ func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
 		Strings:        make(map[string]XCStringsEntry),
 	}
 
-	// Process all iOS translations
-	for _, trans := range iOSTranslations {
-		var key string
-
-		// For plural forms, we need special handling
-		if trans.Type == models.TypePlural {
-
+	// Process all translations
+	for _, trans := range tm.Translations {
+		if trans.Type == "plural" {
 			// Singular form
-			if oneTrans, ok := trans.Translations["en"][models.QuantityOne]; ok && oneTrans != "" {
+			if enTrans, ok := trans.Values["en"]; ok && enTrans.One != "" {
 				singularKey := trans.Key + ".singular"
 				singularEntry := XCStringsEntry{
 					Comment:       trans.Comment + " (singular)",
@@ -144,12 +133,12 @@ func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
 				}
 
 				// Add localizations for singular
-				for lang, quantities := range trans.Translations {
-					if val, ok := quantities[models.QuantityOne]; ok && val != "" {
+				for lang, quantities := range trans.Values {
+					if quantities.One != "" {
 						singularEntry.Localizations[lang] = XCStringsLocalization{
 							StringUnit: XCStringsUnit{
 								State: "translated",
-								Value: val,
+								Value: quantities.One,
 							},
 						}
 					}
@@ -159,7 +148,7 @@ func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
 			}
 
 			// Plural form
-			if otherTrans, ok := trans.Translations["en"][models.QuantityOther]; ok && otherTrans != "" {
+			if enTrans, ok := trans.Values["en"]; ok && enTrans.Other != "" {
 				pluralKey := trans.Key + ".plural"
 				pluralEntry := XCStringsEntry{
 					Comment:       trans.Comment + " (plural)",
@@ -167,12 +156,12 @@ func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
 				}
 
 				// Add localizations for plural
-				for lang, quantities := range trans.Translations {
-					if val, ok := quantities[models.QuantityOther]; ok && val != "" {
+				for lang, quantities := range trans.Values {
+					if quantities.Other != "" {
 						pluralEntry.Localizations[lang] = XCStringsLocalization{
 							StringUnit: XCStringsUnit{
 								State: "translated",
-								Value: val,
+								Value: quantities.Other,
 							},
 						}
 					}
@@ -185,11 +174,11 @@ func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
 		}
 
 		// Regular singular strings
-		key = trans.Key
+		key := trans.Key
 
 		// Skip if no English translation
-		enTrans, ok := trans.Translations["en"]
-		if !ok || len(enTrans) == 0 {
+		enTrans, ok := trans.Values["en"]
+		if !ok || enTrans.One == "" {
 			continue
 		}
 
@@ -200,12 +189,12 @@ func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
 		}
 
 		// Add localizations
-		for lang, quantities := range trans.Translations {
-			if val, ok := quantities[models.QuantityOne]; ok && val != "" {
+		for lang, quantities := range trans.Values {
+			if quantities.One != "" {
 				entry.Localizations[lang] = XCStringsLocalization{
 					StringUnit: XCStringsUnit{
 						State: "translated",
-						Value: val,
+						Value: quantities.One,
 					},
 				}
 			}
@@ -226,4 +215,20 @@ func ExportToXCStrings(ts *models.TranslationSet, baseDirectory string) error {
 
 	fmt.Printf("Successfully exported to iOS format: %s\n", outputFile)
 	return nil
+}
+
+// isPluralKey determines if a key is for a plural translation
+func isPluralKey(key string) bool {
+	return strings.HasSuffix(key, ".plural") || strings.HasSuffix(key, ".singular")
+}
+
+// normalizeKey extracts the base key without plural suffix
+func normalizeKey(key string) string {
+	if strings.HasSuffix(key, ".singular") {
+		return key[:len(key)-9] // Remove .singular
+	}
+	if strings.HasSuffix(key, ".plural") {
+		return key[:len(key)-7] // Remove .plural
+	}
+	return key
 }

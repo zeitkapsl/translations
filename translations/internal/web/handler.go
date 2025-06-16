@@ -5,115 +5,37 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/zeitkapsl/translations/internal/models"
 )
 
-// ImportFromJSON imports translations from Web/Backend JSON files or JavaScript translation files
-func ImportFromJSON(ts *models.TranslationSet, baseDirectory string) error {
+// ImportFromWeb imports translations from Web/Backend JavaScript files
+func ImportFromWeb(tm *models.TranslationManager, baseDirectory string) error {
 	if baseDirectory == "" {
 		baseDirectory = "."
 	}
 
 	// Look for Web project structure: web/src/lib/i18n/
 	webI18nPath := filepath.Join(baseDirectory, "web", "src", "lib", "i18n")
-	
-	// Also try alternative paths if the standard one doesn't exist
-	alternativePaths := []string{
-		filepath.Join(baseDirectory, "web", "i18n"),
-		filepath.Join(baseDirectory, "web", "translations"),
-		filepath.Join(baseDirectory, "web", "locales"),
-		filepath.Join(baseDirectory, "web"),
-	}
-	
-	// Check if the primary path exists, if not try alternatives
+
+	// Check if the primary path exists
 	if _, err := os.Stat(webI18nPath); os.IsNotExist(err) {
-		found := false
-		for _, altPath := range alternativePaths {
-			if _, err := os.Stat(altPath); err == nil {
-				webI18nPath = altPath
-				found = true
-				fmt.Printf("Using alternative web path: %s\n", webI18nPath)
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("Web i18n directory not found at %s or any alternative paths", webI18nPath)
-		}
+		return fmt.Errorf("web i18n directory not found at %s", webI18nPath)
 	}
 
-	// First try to find and parse a translations.js file
+	// Try to find and parse a translations.js file
 	jsFile := filepath.Join(webI18nPath, "translations.js")
 	if _, err := os.Stat(jsFile); err == nil {
-		return importFromJavaScriptFile(ts, jsFile)
+		return importFromJavaScriptFile(tm, jsFile)
 	}
 
-	// Fallback to JSON files like en.json, de.json, etc.
-	files, err := filepath.Glob(filepath.Join(webI18nPath, "*.json"))
-	if err != nil {
-		return fmt.Errorf("error finding JSON files: %v", err)
-	}
-
-	if len(files) == 0 {
-		return fmt.Errorf("no JSON translation files or translations.js found in %s", webI18nPath)
-	}
-
-	importCount := 0
-
-	for _, file := range files {
-		// Extract language code from filename
-		filename := filepath.Base(file)
-		lang := strings.TrimSuffix(filename, ".json")
-
-		// Skip files that don't look like language files
-		if len(lang) > 5 || !isValidLanguageCode(lang) {
-			fmt.Printf("Skipping file %s as it doesn't match a language code format\n", filename)
-			continue
-		}
-
-		fmt.Printf("Importing from %s...\n", file)
-
-		data, err := os.ReadFile(file)
-		if err != nil {
-			fmt.Printf("Error reading %s: %v\n", file, err)
-			continue
-		}
-
-		var jsonTranslations map[string]string
-		if err := json.Unmarshal(data, &jsonTranslations); err != nil {
-			fmt.Printf("Error parsing %s: %v\n", file, err)
-			continue
-		}
-
-		// Add language if not already present
-		ts.AddLanguage(lang)
-
-		// Process translations
-		for key, value := range jsonTranslations {
-			// Check if it's a plural form
-			if strings.HasSuffix(key, ".singular") {
-				baseKey := strings.TrimSuffix(key, ".singular")
-				ts.AddOrUpdatePluralTranslationWithSource(baseKey, "", lang, models.QuantityOne, value, models.SourceWeb)
-				importCount++
-			} else if strings.HasSuffix(key, ".plural") {
-				baseKey := strings.TrimSuffix(key, ".plural")
-				ts.AddOrUpdatePluralTranslationWithSource(baseKey, "", lang, models.QuantityOther, value, models.SourceWeb)
-				importCount++
-			} else {
-				// Regular string
-				ts.AddOrUpdateTranslationWithSource(key, "", lang, value, models.SourceWeb)
-				importCount++
-			}
-		}
-	}
-
-	fmt.Printf("Imported %d translations from JSON files\n", importCount)
-	return nil
+	return fmt.Errorf("no translations.js file found in %s", webI18nPath)
 }
 
 // importFromJavaScriptFile parses a translations.js file with the specific format used
-func importFromJavaScriptFile(ts *models.TranslationSet, filePath string) error {
+func importFromJavaScriptFile(tm *models.TranslationManager, filePath string) error {
 	fmt.Printf("Importing from JavaScript file: %s...\n", filePath)
 
 	data, err := os.ReadFile(filePath)
@@ -122,7 +44,7 @@ func importFromJavaScriptFile(ts *models.TranslationSet, filePath string) error 
 	}
 
 	content := string(data)
-	
+
 	// Parse the JavaScript file to extract translations
 	translations, err := parseJavaScriptTranslations(content)
 	if err != nil {
@@ -140,22 +62,22 @@ func importFromJavaScriptFile(ts *models.TranslationSet, filePath string) error 
 		}
 
 		// Add language if not already present
-		ts.AddLanguage(lang)
+		tm.EnsureLanguage(lang)
 
 		// Process translations for this language
 		for key, value := range langTranslations {
 			// Check if it's a plural form
 			if strings.HasSuffix(key, ".singular") {
 				baseKey := strings.TrimSuffix(key, ".singular")
-				ts.AddOrUpdatePluralTranslationWithSource(baseKey, "", lang, models.QuantityOne, value, models.SourceWeb)
+				tm.SetPluralSingular(baseKey, lang, value, "")
 				importCount++
 			} else if strings.HasSuffix(key, ".plural") {
 				baseKey := strings.TrimSuffix(key, ".plural")
-				ts.AddOrUpdatePluralTranslationWithSource(baseKey, "", lang, models.QuantityOther, value, models.SourceWeb)
+				tm.SetPluralOther(baseKey, lang, value, "")
 				importCount++
 			} else {
 				// Regular string
-				ts.AddOrUpdateTranslationWithSource(key, "", lang, value, models.SourceWeb)
+				tm.SetTranslation(key, lang, value, "", "singular")
 				importCount++
 			}
 		}
@@ -165,106 +87,137 @@ func importFromJavaScriptFile(ts *models.TranslationSet, filePath string) error 
 	return nil
 }
 
-// parseJavaScriptTranslations parses the specific JavaScript translation format
-func parseJavaScriptTranslations(content string) (map[string]map[string]string, error) {
-	// Remove import statements and export default
-	lines := strings.Split(content, "\n")
-	var objectStart int = -1
-	var braceCount int = 0
-	var inObject bool = false
+// ExportToWeb exports translations to separate JSON files for each language
+func ExportToWeb(tm *models.TranslationManager, baseDirectory string) error {
+	if baseDirectory == "" {
+		baseDirectory = "."
+	}
 
-	// Find where the object starts
-	for i, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "export default") {
-			objectStart = i
-			break
+	webPath := filepath.Join(baseDirectory, "web", "src", "lib", "i18n")
+
+	if err := os.MkdirAll(webPath, 0755); err != nil {
+		return err
+	}
+
+	// Export each language as a separate JSON file
+	for _, lang := range tm.Languages {
+		if err := writeLanguageJSONFile(tm, webPath, lang); err != nil {
+			return fmt.Errorf("error writing JSON file for %s: %v", lang, err)
 		}
 	}
 
-	if objectStart == -1 {
-		return nil, fmt.Errorf("could not find export default statement")
+	fmt.Printf("Exported web translations to separate JSON files in %s\n", webPath)
+	return nil
+}
+
+// writeLanguageJSONFile writes a single language to a JSON file
+func writeLanguageJSONFile(tm *models.TranslationManager, webPath, lang string) error {
+	translations := make(map[string]interface{})
+
+	// Add translations for this language
+	for _, row := range tm.Translations {
+		values := tm.GetTranslationWithFallback(row, lang)
+
+		if row.Type == "plural" {
+			// For plurals, create separate .singular and .plural keys
+			if values.One != "" {
+				translations[row.Key+".singular"] = values.One
+			}
+			if values.Other != "" {
+				translations[row.Key+".plural"] = values.Other
+			}
+		} else {
+			// Regular singular translation
+			if values.One != "" {
+				translations[row.Key] = values.One
+			}
+		}
+	}
+
+	// Skip if no translations for this language
+	if len(translations) == 0 {
+		fmt.Printf("Skipping %s.json - no translations found\n", lang)
+		return nil
+	}
+
+	// Convert to JSON
+	jsonData, err := json.MarshalIndent(translations, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error marshaling JSON for %s: %v", lang, err)
+	}
+
+	// Write to file
+	filePath := filepath.Join(webPath, lang+".json")
+	if err := os.WriteFile(filePath, jsonData, 0644); err != nil {
+		return fmt.Errorf("error writing %s: %v", filePath, err)
+	}
+
+	fmt.Printf("Exported %s.json with %d translations\n", lang, len(translations))
+	return nil
+}
+
+// getTranslationWithFallback gets translation with regional fallback support
+func getTranslationWithFallback(tm *models.TranslationManager, row models.TranslationRow, lang string) models.TranslationValues {
+	return tm.GetTranslationWithFallback(row, lang)
+}
+
+// parseJavaScriptTranslations parses the complex JavaScript translation format
+func parseJavaScriptTranslations(content string) (map[string]map[string]string, error) {
+	result := make(map[string]map[string]string)
+
+	// Find the export default object
+	exportStart := strings.Index(content, "export default {")
+	if exportStart == -1 {
+		return nil, fmt.Errorf("could not find export default")
 	}
 
 	// Extract the object content
-	var objectLines []string
-	for i := objectStart; i < len(lines); i++ {
-		line := lines[i]
-		
-		// Count braces to know when the object ends
-		for _, char := range line {
-			if char == '{' {
-				braceCount++
-				inObject = true
-			} else if char == '}' {
-				braceCount--
+	objectContent := content[exportStart+len("export default {"):]
+
+	// Find matching closing brace
+	braceCount := 1
+	objectEnd := 0
+	for i, char := range objectContent {
+		if char == '{' {
+			braceCount++
+		} else if char == '}' {
+			braceCount--
+			if braceCount == 0 {
+				objectEnd = i
+				break
 			}
 		}
+	}
 
-		if inObject {
-			objectLines = append(objectLines, line)
+	if objectEnd == 0 {
+		return nil, fmt.Errorf("could not find end of object")
+	}
+
+	objectContent = objectContent[:objectEnd]
+
+	// Parse language blocks with improved handling
+	languages := extractLanguageSections(objectContent)
+
+	for lang, section := range languages {
+		translations := parseLanguageBlock(section)
+		if len(translations) > 0 {
+			result[lang] = translations
 		}
-
-		// If we've closed all braces, we're done
-		if inObject && braceCount == 0 {
-			break
-		}
-	}
-
-	// Join all object lines
-	objectContent := strings.Join(objectLines, "\n")
-	
-	// Remove export default and clean up
-	objectContent = strings.Replace(objectContent, "export default", "", 1)
-	objectContent = strings.TrimSpace(objectContent)
-	
-	// Remove trailing semicolon if present
-	if strings.HasSuffix(objectContent, ";") {
-		objectContent = objectContent[:len(objectContent)-1]
-	}
-
-	// Parse the object manually
-	return parseObjectContent(objectContent)
-}
-
-// parseObjectContent manually parses the JavaScript object
-func parseObjectContent(content string) (map[string]map[string]string, error) {
-	result := make(map[string]map[string]string)
-	
-	// Remove outer braces
-	content = strings.TrimSpace(content)
-	if strings.HasPrefix(content, "{") {
-		content = content[1:]
-	}
-	if strings.HasSuffix(content, "}") {
-		content = content[:len(content)-1]
-	}
-
-	// Split by languages (look for top-level keys)
-	langSections := extractLanguageSections(content)
-	
-	for lang, section := range langSections {
-		translations, err := parseTranslationSection(section)
-		if err != nil {
-			fmt.Printf("Warning: Error parsing section for %s: %v\n", lang, err)
-			continue
-		}
-		result[lang] = translations
 	}
 
 	return result, nil
 }
 
-// extractLanguageSections splits the content into language sections
+// extractLanguageSections splits the content into language sections with better parsing
 func extractLanguageSections(content string) map[string]string {
 	sections := make(map[string]string)
-	
-	// Find language keys like "en-US": { ... }
+
+	// Split by lines and process
 	lines := strings.Split(content, "\n")
 	var currentLang string
-	var currentSection []string
+	var currentLines []string
 	var braceCount int
-	var inSection bool
+	var inLanguageBlock bool
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -272,210 +225,256 @@ func extractLanguageSections(content string) map[string]string {
 			continue
 		}
 
-		// Check if this line starts a new language section
-		if strings.Contains(line, ":") && (strings.Contains(line, "\"en-") || strings.Contains(line, "\"de-") || strings.Contains(line, "'en-") || strings.Contains(line, "'de-")) {
-			// Save previous section if exists
-			if currentLang != "" && len(currentSection) > 0 {
-				sections[currentLang] = strings.Join(currentSection, "\n")
+		// Check if this line starts a new language section like "en-US": { or "de-DE": {
+		if matches := regexp.MustCompile(`^\s*"([^"]+)"\s*:\s*\{`).FindStringSubmatch(line); len(matches) > 1 {
+			// Save previous section
+			if currentLang != "" && len(currentLines) > 0 {
+				sections[currentLang] = strings.Join(currentLines, "\n")
 			}
 
-			// Extract language code
-			parts := strings.Split(line, ":")
-			if len(parts) >= 2 {
-				langPart := strings.TrimSpace(parts[0])
-				langPart = strings.Trim(langPart, "\"'")
-				currentLang = langPart
-				currentSection = []string{}
-				braceCount = 0
-				inSection = true
-
-				// Add the rest of the line (after the colon)
-				rest := strings.Join(parts[1:], ":")
-				currentSection = append(currentSection, rest)
-			}
-		} else if inSection {
-			currentSection = append(currentSection, line)
+			// Start new section
+			currentLang = matches[1]
+			currentLines = []string{}
+			braceCount = 1
+			inLanguageBlock = true
+			continue
 		}
 
-		// Count braces
-		for _, char := range line {
-			if char == '{' {
-				braceCount++
-			} else if char == '}' {
-				braceCount--
-			}
-		}
+		if inLanguageBlock {
+			currentLines = append(currentLines, line)
 
-		// If braces are balanced and we're at the end of a section
-		if inSection && braceCount == 0 && strings.Contains(line, "}") {
-			if currentLang != "" {
-				sections[currentLang] = strings.Join(currentSection, "\n")
+			// Count braces to track nesting
+			for _, char := range line {
+				if char == '{' {
+					braceCount++
+				} else if char == '}' {
+					braceCount--
+				}
+			}
+
+			// End of language block
+			if braceCount == 0 {
+				if currentLang != "" {
+					sections[currentLang] = strings.Join(currentLines, "\n")
+				}
 				currentLang = ""
-				currentSection = []string{}
-				inSection = false
+				currentLines = []string{}
+				inLanguageBlock = false
 			}
 		}
 	}
 
 	// Don't forget the last section
-	if currentLang != "" && len(currentSection) > 0 {
-		sections[currentLang] = strings.Join(currentSection, "\n")
+	if currentLang != "" && len(currentLines) > 0 {
+		sections[currentLang] = strings.Join(currentLines, "\n")
 	}
 
 	return sections
 }
 
-// parseTranslationSection parses individual translation key-value pairs
-func parseTranslationSection(section string) (map[string]string, error) {
-	translations := make(map[string]string)
-	
-	// Remove outer braces
-	section = strings.TrimSpace(section)
-	if strings.HasPrefix(section, "{") {
-		section = section[1:]
-	}
-	if strings.HasSuffix(section, "}") {
-		section = section[:len(section)-1]
-	}
+// parseLanguageBlock parses individual translation key-value pairs with advanced handling
+func parseLanguageBlock(block string) map[string]string {
+	result := make(map[string]string)
 
-	// Split by lines and parse each key-value pair
-	lines := strings.Split(section, "\n")
-	
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
+	// Remove the trailing }
+	block = strings.TrimSuffix(strings.TrimSpace(block), "},")
+	block = strings.TrimSuffix(strings.TrimSpace(block), "}")
+
+	// Split into lines and process each one
+	lines := strings.Split(block, "\n")
+
+	i := 0
+	for i < len(lines) {
+		line := strings.TrimSpace(lines[i])
+
 		if line == "" || line == "," {
+			i++
 			continue
 		}
 
 		// Remove trailing comma
-		if strings.HasSuffix(line, ",") {
-			line = line[:len(line)-1]
+		line = strings.TrimSuffix(line, ",")
+
+		// Parse different types of entries
+		if entry := parseSimpleKeyValue(line); entry != nil {
+			result[entry.key] = entry.value
+		} else if entry := parseTemplateString(line); entry != nil {
+			result[entry.key] = entry.value
+		} else if entry := parseArrayValue(line, lines, &i); entry != nil {
+			result[entry.key] = entry.value
+		} else if entry := parseFunction(line, lines, &i); entry != nil {
+			// Skip functions for now, but you could handle them if needed
+			// result[entry.key] = entry.value
 		}
 
-		// Parse key: value
-		colonIndex := strings.Index(line, ":")
-		if colonIndex == -1 {
-			continue
-		}
-
-		key := strings.TrimSpace(line[:colonIndex])
-		value := strings.TrimSpace(line[colonIndex+1:])
-
-		// Clean up key (remove quotes)
-		key = strings.Trim(key, "\"'")
-		
-		// Clean up value (remove quotes and handle template literals)
-		if strings.HasPrefix(value, "`") && strings.HasSuffix(value, "`") {
-			// Template literal - convert to simple string
-			value = strings.Trim(value, "`")
-			// Replace ${new Date().getFullYear()} with current year
-			value = strings.ReplaceAll(value, "${new Date().getFullYear()}", "2024")
-		} else {
-			// Regular string - remove quotes
-			value = strings.Trim(value, "\"'")
-		}
-
-		if key != "" && value != "" {
-			translations[key] = value
-		}
+		i++
 	}
 
-	return translations, nil
+	return result
 }
 
-// ExportToJSON exports translations to Web/Backend JSON files
-func ExportToJSON(ts *models.TranslationSet, baseDirectory string) error {
-	if baseDirectory == "" {
-		baseDirectory = "."
-	}
+type keyValuePair struct {
+	key   string
+	value string
+}
 
-	// Export to Web project structure: web/src/lib/i18n/
-	webI18nPath := filepath.Join(baseDirectory, "web", "src", "lib", "i18n")
-
-	// Get only Web-sourced translations
-	webTranslations := ts.GetTranslationsBySource(models.SourceWeb)
-	if len(webTranslations) == 0 {
-		fmt.Println("No Web translations to export")
+// parseSimpleKeyValue handles simple key: "value" pairs
+func parseSimpleKeyValue(line string) *keyValuePair {
+	colonIndex := strings.Index(line, ":")
+	if colonIndex == -1 {
 		return nil
 	}
 
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(webI18nPath, 0755); err != nil {
-		return fmt.Errorf("error creating directory %s: %v", webI18nPath, err)
-	}
+	key := strings.TrimSpace(line[:colonIndex])
+	value := strings.TrimSpace(line[colonIndex+1:])
 
-	// For each language, create a .json file
-	for _, lang := range ts.Languages {
-		// Check if there are any Web translations for this language
-		hasTranslations := false
-		for _, trans := range webTranslations {
-			if _, ok := trans.Translations[lang]; ok {
-				hasTranslations = true
-				break
-			}
-		}
+	// Clean up key
+	key = strings.Trim(key, "\"'")
 
-		if !hasTranslations {
-			continue
-		}
-
-		// Create JSON structure
-		jsonTranslations := make(map[string]string)
-
-		// Add translations (only Web-sourced ones)
-		for _, trans := range webTranslations {
-			if translations, ok := trans.Translations[lang]; ok {
-				if trans.Type == models.TypeSingular {
-					if val, ok := translations[models.QuantityOne]; ok && val != "" {
-						jsonTranslations[trans.Key] = val
-					}
-				} else {
-					// For plurals, we need to use .singular and .plural suffixes
-					if val, ok := translations[models.QuantityOne]; ok && val != "" {
-						jsonTranslations[trans.Key+".singular"] = val
-					}
-					if val, ok := translations[models.QuantityOther]; ok && val != "" {
-						jsonTranslations[trans.Key+".plural"] = val
-					}
-				}
-			}
-		}
-
-		// Skip if no translations for this language
-		if len(jsonTranslations) == 0 {
-			continue
-		}
-
-		// Marshal to JSON
-		jsonData, err := json.MarshalIndent(jsonTranslations, "", "  ")
-		if err != nil {
-			return fmt.Errorf("error generating JSON for %s: %v", lang, err)
-		}
-
-		// Write to file
-		filePath := filepath.Join(webI18nPath, lang+".json")
-		if err := os.WriteFile(filePath, jsonData, 0644); err != nil {
-			return fmt.Errorf("error writing %s: %v", filePath, err)
-		}
-
-		fmt.Printf("Exported JSON translations to %s\n", filePath)
+	// Handle simple quoted strings
+	if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
+		(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+		value = strings.Trim(value, "\"'")
+		// Unescape common escape sequences
+		value = strings.ReplaceAll(value, "\\\"", "\"")
+		value = strings.ReplaceAll(value, "\\'", "'")
+		value = strings.ReplaceAll(value, "\\n", "\n")
+		return &keyValuePair{key: key, value: value}
 	}
 
 	return nil
 }
 
+// parseTemplateString handles template literals like `text ${variable} more text`
+func parseTemplateString(line string) *keyValuePair {
+	colonIndex := strings.Index(line, ":")
+	if colonIndex == -1 {
+		return nil
+	}
+
+	key := strings.TrimSpace(line[:colonIndex])
+	value := strings.TrimSpace(line[colonIndex+1:])
+
+	// Clean up key
+	key = strings.Trim(key, "\"'")
+
+	// Handle template literals
+	if strings.HasPrefix(value, "`") && strings.HasSuffix(value, "`") {
+		value = strings.Trim(value, "`")
+		// Replace template expressions with placeholders
+		value = regexp.MustCompile(`\$\{[^}]+\}`).ReplaceAllString(value, "%s")
+		// Handle HTML tags
+		value = strings.ReplaceAll(value, "<br\\>", "<br>")
+		return &keyValuePair{key: key, value: value}
+	}
+
+	return nil
+}
+
+// parseArrayValue handles array values like ["jan", "feb", ...]
+func parseArrayValue(line string, lines []string, currentIndex *int) *keyValuePair {
+	colonIndex := strings.Index(line, ":")
+	if colonIndex == -1 {
+		return nil
+	}
+
+	key := strings.TrimSpace(line[:colonIndex])
+	value := strings.TrimSpace(line[colonIndex+1:])
+
+	// Clean up key
+	key = strings.Trim(key, "\"'")
+
+	// Check if this starts an array
+	if strings.HasPrefix(value, "[") {
+		arrayContent := value
+
+		// If array doesn't close on same line, collect more lines
+		if !strings.HasSuffix(strings.TrimSpace(value), "]") && !strings.Contains(value, "],") {
+			for j := *currentIndex + 1; j < len(lines); j++ {
+				nextLine := strings.TrimSpace(lines[j])
+				arrayContent += " " + nextLine
+				*currentIndex = j
+				if strings.HasSuffix(nextLine, "],") || strings.HasSuffix(nextLine, "]") {
+					break
+				}
+			}
+		}
+
+		// Extract array elements
+		arrayContent = strings.TrimSuffix(strings.TrimSuffix(arrayContent, "],"), "]")
+		arrayContent = strings.TrimPrefix(arrayContent, "[")
+
+		// Parse array elements
+		elements := []string{}
+		for _, element := range strings.Split(arrayContent, ",") {
+			element = strings.TrimSpace(element)
+			element = strings.Trim(element, "\"'")
+			if element != "" {
+				elements = append(elements, element)
+			}
+		}
+
+		// Join array elements with commas for storage
+		if len(elements) > 0 {
+			return &keyValuePair{key: key, value: strings.Join(elements, ",")}
+		}
+	}
+
+	return nil
+}
+
+// parseFunction handles function values like (param) => `result ${param}`
+func parseFunction(line string, lines []string, currentIndex *int) *keyValuePair {
+	colonIndex := strings.Index(line, ":")
+	if colonIndex == -1 {
+		return nil
+	}
+
+	key := strings.TrimSpace(line[:colonIndex])
+	value := strings.TrimSpace(line[colonIndex+1:])
+
+	// Clean up key
+	key = strings.Trim(key, "\"'")
+
+	// Check if this is a function
+	if strings.Contains(value, "=>") {
+		// For now, skip functions as they're complex to handle
+		// You could extract the template part if needed
+
+		// If function spans multiple lines, skip them
+		if !strings.HasSuffix(value, ",") {
+			for j := *currentIndex + 1; j < len(lines); j++ {
+				nextLine := strings.TrimSpace(lines[j])
+				*currentIndex = j
+				if strings.HasSuffix(nextLine, ",") || strings.HasSuffix(nextLine, "}") {
+					break
+				}
+			}
+		}
+
+		return &keyValuePair{key: key, value: "FUNCTION_PLACEHOLDER"}
+	}
+
+	return nil
+}
+
+// escapeJS escapes a string for JavaScript
+func escapeJS(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
+	s = strings.ReplaceAll(s, "\t", "\\t")
+	return s
+}
+
 // isValidLanguageCode checks if a string is a valid language code
 func isValidLanguageCode(code string) bool {
-	// Simple validation for language code formats
 	if len(code) == 2 {
-		// Basic language code (e.g., en, de, fr)
 		return true
 	}
-
 	if len(code) == 5 && code[2] == '-' {
-		// Language with region (e.g., en-US, de-AT)
 		return true
 	}
-
 	return false
 }

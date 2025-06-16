@@ -12,20 +12,20 @@ import (
 
 // Resources represents the root element of an Android strings.xml file
 type Resources struct {
-	XMLName xml.Name         `xml:"resources"`
-	Strings []StringResource `xml:"string"`
-	Plurals []PluralResource `xml:"plurals"`
+	XMLName xml.Name        `xml:"resources"`
+	Strings []StringElement `xml:"string"`
+	Plurals []PluralElement `xml:"plurals"`
 }
 
-// StringResource represents a string element in an Android strings.xml file
-type StringResource struct {
+// StringElement represents a string element in an Android strings.xml file
+type StringElement struct {
 	XMLName xml.Name `xml:"string"`
 	Name    string   `xml:"name,attr"`
 	Value   string   `xml:",chardata"`
 }
 
-// PluralResource represents a plurals element in an Android strings.xml file
-type PluralResource struct {
+// PluralElement represents a plurals element in an Android strings.xml file
+type PluralElement struct {
 	XMLName xml.Name     `xml:"plurals"`
 	Name    string       `xml:"name,attr"`
 	Items   []PluralItem `xml:"item"`
@@ -39,14 +39,14 @@ type PluralItem struct {
 }
 
 // ImportFromAndroid imports translations from Android strings.xml files
-func ImportFromAndroid(ts *models.TranslationSet, baseDirectory string) error {
+func ImportFromAndroid(tm *models.TranslationManager, baseDirectory string) error {
 	if baseDirectory == "" {
 		baseDirectory = "."
 	}
 
 	// Look for Android project structure: android/app/src/main/res/
 	androidResPath := filepath.Join(baseDirectory, "android", "app", "src", "main", "res")
-	
+
 	// Check if the Android res directory exists
 	if _, err := os.Stat(androidResPath); os.IsNotExist(err) {
 		return fmt.Errorf("Android res directory not found at %s", androidResPath)
@@ -94,25 +94,31 @@ func ImportFromAndroid(ts *models.TranslationSet, baseDirectory string) error {
 		}
 
 		// Add language if not already present
-		ts.AddLanguage(lang)
+		tm.EnsureLanguage(lang)
 
 		// Process regular strings
 		for _, str := range resources.Strings {
-			ts.AddOrUpdateTranslationWithSource(str.Name, "", lang, str.Value, models.SourceAndroid)
+			tm.SetTranslation(str.Name, lang, str.Value, "", "singular")
 			importCount++
 		}
 
 		// Process plurals
 		for _, plural := range resources.Plurals {
+			oneValue := ""
+			otherValue := ""
+
 			for _, item := range plural.Items {
-				quantity := models.TranslationQuantity(item.Quantity)
-				if quantity == "one" {
-					ts.AddOrUpdatePluralTranslationWithSource(plural.Name, "", lang, models.QuantityOne, item.Value, models.SourceAndroid)
+				if item.Quantity == "one" {
+					oneValue = item.Value
 				} else {
 					// Android has many quantity types (zero, one, two, few, many, other)
 					// but we map them all to "other" for simplicity
-					ts.AddOrUpdatePluralTranslationWithSource(plural.Name, "", lang, models.QuantityOther, item.Value, models.SourceAndroid)
+					otherValue = item.Value
 				}
+			}
+
+			if oneValue != "" || otherValue != "" {
+				tm.SetPluralTranslation(plural.Name, lang, oneValue, otherValue, "")
 				importCount++
 			}
 		}
@@ -123,7 +129,7 @@ func ImportFromAndroid(ts *models.TranslationSet, baseDirectory string) error {
 }
 
 // ExportToAndroid exports translations to Android strings.xml files
-func ExportToAndroid(ts *models.TranslationSet, baseDirectory string) error {
+func ExportToAndroid(tm *models.TranslationManager, baseDirectory string) error {
 	if baseDirectory == "" {
 		baseDirectory = "."
 	}
@@ -131,19 +137,12 @@ func ExportToAndroid(ts *models.TranslationSet, baseDirectory string) error {
 	// Export to Android project structure: android/app/src/main/res/
 	androidResPath := filepath.Join(baseDirectory, "android", "app", "src", "main", "res")
 
-	// Get only Android-sourced translations
-	androidTranslations := ts.GetTranslationsBySource(models.SourceAndroid)
-	if len(androidTranslations) == 0 {
-		fmt.Println("No Android translations to export")
-		return nil
-	}
-
 	// For each language, create a strings.xml file in the appropriate directory
-	for _, lang := range ts.Languages {
+	for _, lang := range tm.Languages {
 		// Check if there are any Android translations for this language
 		hasTranslations := false
-		for _, trans := range androidTranslations {
-			if _, ok := trans.Translations[lang]; ok {
+		for _, trans := range tm.Translations {
+			if _, ok := trans.Values[lang]; ok {
 				hasTranslations = true
 				break
 			}
@@ -159,7 +158,7 @@ func ExportToAndroid(ts *models.TranslationSet, baseDirectory string) error {
 			// Handle regional variants like de-AT -> values-de-rAT
 			if strings.Contains(lang, "-") {
 				parts := strings.Split(lang, "-")
-				dirName = fmt.Sprintf("values-%s-r%s", parts[0], parts[1])
+				dirName = fmt.Sprintf("values-%s-r%s", parts[0], strings.ToUpper(parts[1]))
 			} else {
 				dirName = "values-" + lang
 			}
@@ -174,55 +173,48 @@ func ExportToAndroid(ts *models.TranslationSet, baseDirectory string) error {
 
 		// Create XML structure
 		resources := Resources{
-			Strings: []StringResource{},
-			Plurals: []PluralResource{},
+			Strings: []StringElement{},
+			Plurals: []PluralElement{},
 		}
 
 		// Track processed plural keys to avoid duplicates
 		processedPlurals := make(map[string]bool)
 
-		// Add translations (only Android-sourced ones)
-		for _, trans := range androidTranslations {
+		// Add translations
+		for _, trans := range tm.Translations {
 			// Skip keys without translations for this language
-			if _, ok := trans.Translations[lang]; !ok {
+			values, ok := trans.Values[lang]
+			if !ok {
 				continue
 			}
 
-			if trans.Type == models.TypeSingular {
+			if trans.Type == "singular" {
 				// Add as regular string
-				value := ""
-				if translations, ok := trans.Translations[lang]; ok {
-					if val, ok := translations[models.QuantityOne]; ok {
-						value = val
-					}
-				}
-
-				if value != "" {
-					resources.Strings = append(resources.Strings, StringResource{
+				if values.One != "" {
+					resources.Strings = append(resources.Strings, StringElement{
 						Name:  trans.Key,
-						Value: value,
+						Value: values.One,
 					})
 				}
-			} else if trans.Type == models.TypePlural && !processedPlurals[trans.Key] {
+			} else if trans.Type == "plural" && !processedPlurals[trans.Key] {
 				// Add as plural
-				pluralResource := PluralResource{
+				pluralResource := PluralElement{
 					Name:  trans.Key,
 					Items: []PluralItem{},
 				}
 
 				// Add quantity items
-				langTranslations := trans.Translations[lang]
-				if val, ok := langTranslations[models.QuantityOne]; ok && val != "" {
+				if values.One != "" {
 					pluralResource.Items = append(pluralResource.Items, PluralItem{
-						Quantity: string(models.QuantityOne),
-						Value:    val,
+						Quantity: "one",
+						Value:    values.One,
 					})
 				}
 
-				if val, ok := langTranslations[models.QuantityOther]; ok && val != "" {
+				if values.Other != "" {
 					pluralResource.Items = append(pluralResource.Items, PluralItem{
-						Quantity: string(models.QuantityOther),
-						Value:    val,
+						Quantity: "other",
+						Value:    values.Other,
 					})
 				}
 
