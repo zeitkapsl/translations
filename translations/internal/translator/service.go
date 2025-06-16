@@ -13,16 +13,16 @@ import (
 	"github.com/zeitkapsl/translations/internal/models"
 )
 
+// TranslationService interface for different translation providers
 type TranslationService interface {
 	Translate(text, sourceLang, targetLang string) (string, error)
 	Name() string
 }
 
+// DeepLTranslator implements TranslationService for DeepL API
 type DeepLTranslator struct {
 	APIKey string
 }
-
-
 
 func (d *DeepLTranslator) Name() string {
 	return "DeepL"
@@ -84,24 +84,20 @@ func (d *DeepLTranslator) Translate(text, sourceLang, targetLang string) (string
 	return result.Translations[0].Text, nil
 }
 
+// AzureTranslator implements TranslationService for Azure Translator API
 type AzureTranslator struct {
-	Key        string
-	Region     string
-	Endpoint   string
+	Key      string
+	Region   string
+	Endpoint string
 }
 
 func (a *AzureTranslator) Name() string {
 	return "Azure Translator"
 }
 
-// Translate translates text using Azure Translator API
 func (a *AzureTranslator) Translate(text, sourceLang, targetLang string) (string, error) {
-	if a.Key == "" {
-		return "", fmt.Errorf("azure Translator key not set. Set AZURE_TRANSLATOR_KEY environment variable")
-	}
-	
-	if a.Region == "" {
-		return "", fmt.Errorf("azure Translator region not set. Set AZURE_TRANSLATOR_REGION environment variable")
+	if a.Key == "" || a.Region == "" {
+		return "", fmt.Errorf("Azure Translator credentials not set. Set AZURE_TRANSLATOR_KEY and AZURE_TRANSLATOR_REGION environment variables")
 	}
 
 	url := a.Endpoint
@@ -152,7 +148,7 @@ func (a *AzureTranslator) Translate(text, sourceLang, targetLang string) (string
 			To   string `json:"to"`
 		} `json:"translations"`
 	}
-	
+
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", fmt.Errorf("error parsing response: %v", err)
 	}
@@ -164,17 +160,18 @@ func (a *AzureTranslator) Translate(text, sourceLang, targetLang string) (string
 	return result[0].Translations[0].Text, nil
 }
 
+// GetTranslationService returns an appropriate translation service based on environment variables
 func GetTranslationService() TranslationService {
 	// Check for Azure API key first
 	azureKey := os.Getenv("AZURE_TRANSLATOR_KEY")
 	azureRegion := os.Getenv("AZURE_TRANSLATOR_REGION")
 	azureEndpoint := os.Getenv("AZURE_TRANSLATOR_ENDPOINT")
-	
+
 	// Default endpoint if not specified
 	if azureEndpoint == "" {
 		azureEndpoint = "https://api.cognitive.microsofttranslator.com/translate"
 	}
-	
+
 	// If Azure credentials are available, use Azure
 	if azureKey != "" && azureRegion != "" {
 		fmt.Println("Using Azure Translator service")
@@ -184,113 +181,126 @@ func GetTranslationService() TranslationService {
 			Endpoint: azureEndpoint,
 		}
 	}
-	
+
 	// Fall back to DeepL
 	deeplKey := os.Getenv("DEEPL_API_KEY")
 	if deeplKey != "" {
 		fmt.Println("Using DeepL translation service")
 		return &DeepLTranslator{APIKey: deeplKey}
 	}
-	
+
 	// No translation service available
-	panic("No translation service configured. Please set either DEEPL_API_KEY or both AZURE_TRANSLATOR_KEY and AZURE_TRANSLATOR_REGION environment variables.")
+	return nil
 }
 
+// AutoTranslateFromEnglish performs automatic translation from English only
+func AutoTranslateFromEnglish(tm *models.TranslationManager, service TranslationService) (int, error) {
+	if service == nil {
+		return 0, fmt.Errorf("no translation service configured")
+	}
 
-func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, error) {
 	sourceLang := "en"
 	translatedCount := 0
-	requestCount := 0 //counter for rate limiting
+	requestCount := 0
 
-	fmt.Printf("Using %s for translation\n", service.Name())
+	fmt.Printf("Using %s for translation from English to all other languages\n", service.Name())
 
-	baseLanguages := []string{}
-	for _, lang := range ts.Languages {
-		if !strings.Contains(lang, "-") && lang != sourceLang {
-			baseLanguages = append(baseLanguages, lang)
+	// Get all target languages (exclude English and regional variants)
+	targetLanguages := []string{}
+	for _, lang := range tm.Languages {
+		if lang != sourceLang && !strings.Contains(lang, "-") {
+			targetLanguages = append(targetLanguages, lang)
 		}
 	}
 
-	if len(baseLanguages) == 0 {
+	if len(targetLanguages) == 0 {
 		return 0, fmt.Errorf("no target languages to translate to")
 	}
 
-	for i, trans := range ts.Translations {
-		sourceTranslations, ok := trans.Translations[sourceLang]
-		if !ok || len(sourceTranslations) == 0 {
-			continue
+	fmt.Printf("Target languages: %s\n", strings.Join(targetLanguages, ", "))
+
+	// Debug: Count how many strings have English content
+	englishStrings := 0
+	for _, row := range tm.Translations {
+		if sourceValues, hasEnglish := row.Values[sourceLang]; hasEnglish && (sourceValues.One != "" || sourceValues.Other != "") {
+			englishStrings++
+		}
+	}
+	fmt.Printf("Found %d strings with English content\n", englishStrings)
+
+	for i, row := range tm.Translations {
+		// Check if we have English source content
+		sourceValues, hasEnglish := row.Values[sourceLang]
+		if !hasEnglish || (sourceValues.One == "" && sourceValues.Other == "") {
+			continue // Skip if no English content
 		}
 
-		for _, targetLang := range baseLanguages {
+		for _, targetLang := range targetLanguages {
 			// Rate limit: pause after every 70 requests
 			if requestCount > 0 && requestCount%70 == 0 {
 				fmt.Println("Rate limit reached, sleeping for 60 seconds...")
 				time.Sleep(60 * time.Second)
 			}
 
-			if trans.Type == models.TypeSingular {
-				if _, ok := trans.Translations[targetLang]; ok && len(trans.Translations[targetLang]) > 0 {
-					continue
+			// Check current target translation - get directly from Values, not with fallback
+			targetValues, hasTarget := row.Values[targetLang]
+			if !hasTarget {
+				targetValues = models.TranslationValues{} // Empty if doesn't exist
+			}
+
+			if row.Type == "plural" {
+				// Translate singular form
+				if sourceValues.One != "" && targetValues.One == "" {
+					fmt.Printf("Translating [en→%s] singular: %s\n", targetLang, sourceValues.One)
+					translatedText, err := service.Translate(sourceValues.One, sourceLang, targetLang)
+					requestCount++
+
+					if err != nil {
+						fmt.Printf("Error translating singular to %s: %v\n", targetLang, err)
+					} else {
+						if tm.Translations[i].Values == nil {
+							tm.Translations[i].Values = make(map[string]models.TranslationValues)
+						}
+						values := tm.Translations[i].Values[targetLang]
+						values.One = translatedText
+						tm.Translations[i].Values[targetLang] = values
+						translatedCount++
+					}
 				}
 
-				sourceText := sourceTranslations[models.QuantityOne]
-				if sourceText == "" {
-					continue
-				}
+				// Translate plural form
+				if sourceValues.Other != "" && targetValues.Other == "" {
+					fmt.Printf("Translating [en→%s] plural: %s\n", targetLang, sourceValues.Other)
+					translatedText, err := service.Translate(sourceValues.Other, sourceLang, targetLang)
+					requestCount++
 
-				fmt.Printf("Translating [%s]: %s\n", targetLang, sourceText)
-				translatedText, err := service.Translate(sourceText, sourceLang, targetLang)
-				requestCount++
-
-				if err != nil {
-					fmt.Printf("Error translating to %s: %v\n", targetLang, err)
-					continue
+					if err != nil {
+						fmt.Printf("Error translating plural to %s: %v\n", targetLang, err)
+					} else {
+						if tm.Translations[i].Values == nil {
+							tm.Translations[i].Values = make(map[string]models.TranslationValues)
+						}
+						values := tm.Translations[i].Values[targetLang]
+						values.Other = translatedText
+						tm.Translations[i].Values[targetLang] = values
+						translatedCount++
+					}
 				}
-
-				if ts.Translations[i].Translations == nil {
-					ts.Translations[i].Translations = make(map[string]map[models.TranslationQuantity]string)
-				}
-				if ts.Translations[i].Translations[targetLang] == nil {
-					ts.Translations[i].Translations[targetLang] = make(map[models.TranslationQuantity]string)
-				}
-				ts.Translations[i].Translations[targetLang][models.QuantityOne] = translatedText
-				translatedCount++
-
 			} else {
-				targetTranslations, ok := trans.Translations[targetLang]
-				if !ok {
-					targetTranslations = make(map[models.TranslationQuantity]string)
-					if ts.Translations[i].Translations == nil {
-						ts.Translations[i].Translations = make(map[string]map[models.TranslationQuantity]string)
-					}
-					ts.Translations[i].Translations[targetLang] = targetTranslations
-				}
+				// Singular translation
+				if sourceValues.One != "" && targetValues.One == "" {
+					fmt.Printf("Translating [en→%s]: %s\n", targetLang, sourceValues.One)
+					translatedText, err := service.Translate(sourceValues.One, sourceLang, targetLang)
+					requestCount++
 
-				if sourceOne, ok := sourceTranslations[models.QuantityOne]; ok && sourceOne != "" {
-					if _, ok := targetTranslations[models.QuantityOne]; !ok || targetTranslations[models.QuantityOne] == "" {
-						fmt.Printf("Translating [%s] singular: %s\n", targetLang, sourceOne)
-						translatedOne, err := service.Translate(sourceOne, sourceLang, targetLang)
-						requestCount++
-						if err != nil {
-							fmt.Printf("Error translating singular to %s: %v\n", targetLang, err)
-						} else {
-							ts.Translations[i].Translations[targetLang][models.QuantityOne] = translatedOne
-							translatedCount++
+					if err != nil {
+						fmt.Printf("Error translating to %s: %v\n", targetLang, err)
+					} else {
+						if tm.Translations[i].Values == nil {
+							tm.Translations[i].Values = make(map[string]models.TranslationValues)
 						}
-					}
-				}
-
-				if sourceOther, ok := sourceTranslations[models.QuantityOther]; ok && sourceOther != "" {
-					if _, ok := targetTranslations[models.QuantityOther]; !ok || targetTranslations[models.QuantityOther] == "" {
-						fmt.Printf("Translating [%s] plural: %s\n", targetLang, sourceOther)
-						translatedOther, err := service.Translate(sourceOther, sourceLang, targetLang)
-						requestCount++
-						if err != nil {
-							fmt.Printf("Error translating plural to %s: %v\n", targetLang, err)
-						} else {
-							ts.Translations[i].Translations[targetLang][models.QuantityOther] = translatedOther
-							translatedCount++
-						}
+						tm.Translations[i].Values[targetLang] = models.TranslationValues{One: translatedText}
+						translatedCount++
 					}
 				}
 			}
@@ -299,4 +309,3 @@ func AutoTranslate(ts *models.TranslationSet, service TranslationService) (int, 
 
 	return translatedCount, nil
 }
-
