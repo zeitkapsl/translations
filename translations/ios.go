@@ -1,4 +1,4 @@
-package ios
+package main
 
 import (
 	"encoding/json"
@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/zeitkapsl/translations/internal/models"
 )
 
 // XCStringsFile represents the structure of an .xcstrings file
@@ -35,7 +33,7 @@ type XCStringsUnit struct {
 }
 
 // ImportFromXCStrings imports translations from iOS .xcstrings files
-func ImportFromXCStrings(tm *models.TranslationManager, baseDirectory string) error {
+func ImportFromXCStrings(tm *Translations, baseDirectory string) error {
 	if baseDirectory == "" {
 		baseDirectory = "."
 	}
@@ -77,14 +75,14 @@ func ImportFromXCStrings(tm *models.TranslationManager, baseDirectory string) er
 				if isPluralKey(key) {
 					baseKey := normalizeKey(key)
 					if strings.HasSuffix(key, ".singular") {
-						tm.SetPluralSingular(baseKey, lang, localization.StringUnit.Value, comment)
+						tm.SetPluralSingular("ios", baseKey, lang, localization.StringUnit.Value, comment)
 					} else if strings.HasSuffix(key, ".plural") {
-						tm.SetPluralOther(baseKey, lang, localization.StringUnit.Value, comment)
+						tm.SetPluralOther("ios", baseKey, lang, localization.StringUnit.Value, comment)
 					} else {
-						tm.SetTranslation(key, lang, localization.StringUnit.Value, comment, "singular")
+						tm.SetTranslation("ios", key, lang, localization.StringUnit.Value, comment)
 					}
 				} else {
-					tm.SetTranslation(key, lang, localization.StringUnit.Value, comment, "singular")
+					tm.SetTranslation("ios", key, lang, localization.StringUnit.Value, comment)
 				}
 
 				// Add language if not already present
@@ -100,7 +98,7 @@ func ImportFromXCStrings(tm *models.TranslationManager, baseDirectory string) er
 }
 
 // ExportToXCStrings exports translations to iOS .xcstrings format
-func ExportToXCStrings(tm *models.TranslationManager, baseDirectory string) error {
+func ExportToXCStrings(tm *Translations, baseDirectory string) error {
 	if baseDirectory == "" {
 		baseDirectory = "."
 	}
@@ -121,64 +119,87 @@ func ExportToXCStrings(tm *models.TranslationManager, baseDirectory string) erro
 		Strings:        make(map[string]XCStringsEntry),
 	}
 
+	// Get all iOS translations
+	iosTranslations := tm.GetTranslationsForApp("ios")
+
+	// Track processed plural keys to avoid duplicates
+	processedPlurals := make(map[string]bool)
+
 	// Process all translations
-	for _, trans := range tm.Translations {
-		if trans.Type == "plural" {
-			// Singular form
-			if enTrans, ok := trans.Values["en"]; ok && enTrans.One != "" {
-				singularKey := trans.Key + ".singular"
+	for _, trans := range iosTranslations {
+		// Handle plural translations
+		if trans.IsPlural() {
+			baseKey := trans.GetSingularKey()
+			
+			// Skip if we've already processed this plural set
+			if processedPlurals[baseKey] {
+				continue
+			}
+
+			// Get both singular and plural forms
+			pluralValues := tm.GetPlural("ios", baseKey)
+			if pluralValues == nil {
+				continue
+			}
+
+			// Create singular entry
+			if hasNonEmptyValues(pluralValues.One) {
+				singularKey := baseKey + ".singular"
 				singularEntry := XCStringsEntry{
 					Comment:       trans.Comment + " (singular)",
 					Localizations: make(map[string]XCStringsLocalization),
 				}
 
 				// Add localizations for singular
-				for lang, quantities := range trans.Values {
-					if quantities.One != "" {
+				for lang, value := range pluralValues.One {
+					if value != "" {
 						singularEntry.Localizations[lang] = XCStringsLocalization{
 							StringUnit: XCStringsUnit{
 								State: "translated",
-								Value: quantities.One,
+								Value: value,
 							},
 						}
 					}
 				}
 
-				xcstrings.Strings[singularKey] = singularEntry
+				if len(singularEntry.Localizations) > 0 {
+					xcstrings.Strings[singularKey] = singularEntry
+				}
 			}
 
-			// Plural form
-			if enTrans, ok := trans.Values["en"]; ok && enTrans.Other != "" {
-				pluralKey := trans.Key + ".plural"
+			// Create plural entry
+			if hasNonEmptyValues(pluralValues.Other) {
+				pluralKey := baseKey + ".plural"
 				pluralEntry := XCStringsEntry{
 					Comment:       trans.Comment + " (plural)",
 					Localizations: make(map[string]XCStringsLocalization),
 				}
 
 				// Add localizations for plural
-				for lang, quantities := range trans.Values {
-					if quantities.Other != "" {
+				for lang, value := range pluralValues.Other {
+					if value != "" {
 						pluralEntry.Localizations[lang] = XCStringsLocalization{
 							StringUnit: XCStringsUnit{
 								State: "translated",
-								Value: quantities.Other,
+								Value: value,
 							},
 						}
 					}
 				}
 
-				xcstrings.Strings[pluralKey] = pluralEntry
+				if len(pluralEntry.Localizations) > 0 {
+					xcstrings.Strings[pluralKey] = pluralEntry
+				}
 			}
 
+			processedPlurals[baseKey] = true
 			continue
 		}
 
-		// Regular singular strings
+		// Handle regular singular strings
 		key := trans.Key
 
-		// Skip if no English translation
-		enTrans, ok := trans.Values["en"]
-		if !ok || enTrans.One == "" {
+		if len(trans.Values) == 0 {
 			continue
 		}
 
@@ -189,18 +210,20 @@ func ExportToXCStrings(tm *models.TranslationManager, baseDirectory string) erro
 		}
 
 		// Add localizations
-		for lang, quantities := range trans.Values {
-			if quantities.One != "" {
+		for lang, value := range trans.Values {
+			if value != "" {
 				entry.Localizations[lang] = XCStringsLocalization{
 					StringUnit: XCStringsUnit{
 						State: "translated",
-						Value: quantities.One,
+						Value: value,
 					},
 				}
 			}
 		}
 
-		xcstrings.Strings[key] = entry
+		if len(entry.Localizations) > 0 {
+			xcstrings.Strings[key] = entry
+		}
 	}
 
 	// Write to file
@@ -213,16 +236,14 @@ func ExportToXCStrings(tm *models.TranslationManager, baseDirectory string) erro
 		return fmt.Errorf("error writing iOS format: %v", err)
 	}
 
-	fmt.Printf("Successfully exported to iOS format: %s\n", outputFile)
+	fmt.Printf("Successfully exported %d entries to iOS format: %s\n", len(xcstrings.Strings), outputFile)
 	return nil
 }
 
-// isPluralKey determines if a key is for a plural translation
 func isPluralKey(key string) bool {
 	return strings.HasSuffix(key, ".plural") || strings.HasSuffix(key, ".singular")
 }
 
-// normalizeKey extracts the base key without plural suffix
 func normalizeKey(key string) string {
 	if strings.HasSuffix(key, ".singular") {
 		return key[:len(key)-9] // Remove .singular
@@ -231,4 +252,16 @@ func normalizeKey(key string) string {
 		return key[:len(key)-7] // Remove .plural
 	}
 	return key
+}
+
+func hasNonEmptyValues(values map[string]string) bool {
+	if values == nil {
+		return false
+	}
+	for _, value := range values {
+		if value != "" {
+			return true
+		}
+	}
+	return false
 }
