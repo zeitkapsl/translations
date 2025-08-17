@@ -1,4 +1,4 @@
-package translator
+package main
 
 import (
 	"bytes"
@@ -9,8 +9,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/zeitkapsl/translations/internal/models"
 )
 
 // TranslationService interface for different translation providers
@@ -194,7 +192,7 @@ func GetTranslationService() TranslationService {
 }
 
 // AutoTranslateFromEnglish performs automatic translation from English only
-func AutoTranslateFromEnglish(tm *models.TranslationManager, service TranslationService) (int, error) {
+func AutoTranslateFromEnglish(tm *Translations, service TranslationService) (int, error) {
 	if service == nil {
 		return 0, fmt.Errorf("no translation service configured")
 	}
@@ -208,7 +206,7 @@ func AutoTranslateFromEnglish(tm *models.TranslationManager, service Translation
 	// Get all target languages (exclude English and regional variants)
 	targetLanguages := []string{}
 	for _, lang := range tm.Languages {
-		if lang != sourceLang && !strings.Contains(lang, "-") {
+		if lang != sourceLang && !strings.Contains(lang, "_") && !strings.Contains(lang, "-") {
 			targetLanguages = append(targetLanguages, lang)
 		}
 	}
@@ -222,7 +220,7 @@ func AutoTranslateFromEnglish(tm *models.TranslationManager, service Translation
 	// Debug: Count how many strings have English content
 	englishStrings := 0
 	for _, row := range tm.Translations {
-		if sourceValues, hasEnglish := row.Values[sourceLang]; hasEnglish && (sourceValues.One != "" || sourceValues.Other != "") {
+		if sourceValues, hasEnglish := row.Values[sourceLang]; hasEnglish && sourceValues != "" {
 			englishStrings++
 		}
 	}
@@ -231,81 +229,38 @@ func AutoTranslateFromEnglish(tm *models.TranslationManager, service Translation
 	for i, row := range tm.Translations {
 		// Check if we have English source content
 		sourceValues, hasEnglish := row.Values[sourceLang]
-		if !hasEnglish || (sourceValues.One == "" && sourceValues.Other == "") {
+		if !hasEnglish || sourceValues == "" {
 			continue // Skip if no English content
 		}
 
 		for _, targetLang := range targetLanguages {
 			// Rate limit: pause after every 70 requests
-			if requestCount > 0 && requestCount%70 == 0 {
-				fmt.Println("Rate limit reached, sleeping for 60 seconds...")
-				time.Sleep(60 * time.Second)
-			}
 
 			// Check current target translation - get directly from Values, not with fallback
-			targetValues, hasTarget := row.Values[targetLang]
-			if !hasTarget {
-				targetValues = models.TranslationValues{} // Empty if doesn't exist
-			}
+			targetValues, _ := row.Values[targetLang]
 
-			if row.Type == "plural" {
-				// Translate singular form
-				if sourceValues.One != "" && targetValues.One == "" {
-					fmt.Printf("Translating [en→%s] singular: %s\n", targetLang, sourceValues.One)
-					translatedText, err := service.Translate(sourceValues.One, sourceLang, targetLang)
-					requestCount++
-
-					if err != nil {
-						fmt.Printf("Error translating singular to %s: %v\n", targetLang, err)
-					} else {
-						if tm.Translations[i].Values == nil {
-							tm.Translations[i].Values = make(map[string]models.TranslationValues)
-						}
-						values := tm.Translations[i].Values[targetLang]
-						values.One = translatedText
-						tm.Translations[i].Values[targetLang] = values
-						translatedCount++
-					}
+			if targetValues == "" {
+				if requestCount > 0 && requestCount%70 == 0 {
+					fmt.Println("Rate limit reached, sleeping for 60 seconds...")
+					time.Sleep(60 * time.Second)
 				}
 
-				// Translate plural form
-				if sourceValues.Other != "" && targetValues.Other == "" {
-					fmt.Printf("Translating [en→%s] plural: %s\n", targetLang, sourceValues.Other)
-					translatedText, err := service.Translate(sourceValues.Other, sourceLang, targetLang)
-					requestCount++
+				translatedText, err := service.Translate(sourceValues, sourceLang, targetLang)
+				requestCount++
 
-					if err != nil {
-						fmt.Printf("Error translating plural to %s: %v\n", targetLang, err)
-					} else {
-						if tm.Translations[i].Values == nil {
-							tm.Translations[i].Values = make(map[string]models.TranslationValues)
-						}
-						values := tm.Translations[i].Values[targetLang]
-						values.Other = translatedText
-						tm.Translations[i].Values[targetLang] = values
-						translatedCount++
+				if err != nil {
+					fmt.Printf("Error translating to %s: %v\n", targetLang, err)
+				} else {
+					if tm.Translations[i].Values == nil {
+						tm.Translations[i].Values = make(map[string]string)
 					}
+					tm.Translations[i].Values[targetLang] = translatedText
+					translatedCount++
 				}
-			} else {
-				// Singular translation
-				if sourceValues.One != "" && targetValues.One == "" {
-					fmt.Printf("Translating [en→%s]: %s\n", targetLang, sourceValues.One)
-					translatedText, err := service.Translate(sourceValues.One, sourceLang, targetLang)
-					requestCount++
+				fmt.Printf("Translating [en→%s]: %s -> %s\n", targetLang, sourceValues, translatedText)
 
-					if err != nil {
-						fmt.Printf("Error translating to %s: %v\n", targetLang, err)
-					} else {
-						if tm.Translations[i].Values == nil {
-							tm.Translations[i].Values = make(map[string]models.TranslationValues)
-						}
-						tm.Translations[i].Values[targetLang] = models.TranslationValues{One: translatedText}
-						translatedCount++
-					}
-				}
 			}
 		}
 	}
-
 	return translatedCount, nil
 }

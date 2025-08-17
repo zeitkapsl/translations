@@ -1,4 +1,4 @@
-package android
+package main
 
 import (
 	"encoding/xml"
@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/zeitkapsl/translations/internal/models"
 )
 
 // Resources represents the root element of an Android strings.xml file
@@ -39,7 +37,7 @@ type PluralItem struct {
 }
 
 // ImportFromAndroid imports translations from Android strings.xml files
-func ImportFromAndroid(tm *models.TranslationManager, baseDirectory string) error {
+func ImportFromAndroid(tm *Translations, baseDirectory string) error {
 	if baseDirectory == "" {
 		baseDirectory = "."
 	}
@@ -77,7 +75,7 @@ func ImportFromAndroid(tm *models.TranslationManager, baseDirectory string) erro
 		if dir != "values" {
 			lang = strings.TrimPrefix(dir, "values-")
 			// Handle regional variants like values-de-rAT -> de-AT
-			lang = strings.Replace(lang, "-r", "-", 1)
+			lang = strings.Replace(lang, "-r", "_", 1)
 		}
 
 		file := filepath.Join(androidResPath, dir, "strings.xml")
@@ -98,7 +96,7 @@ func ImportFromAndroid(tm *models.TranslationManager, baseDirectory string) erro
 
 		// Process regular strings
 		for _, str := range resources.Strings {
-			tm.SetTranslation(str.Name, lang, str.Value, "", "singular")
+			tm.SetTranslation("android", str.Name, lang, str.Value, "")
 			importCount++
 		}
 
@@ -118,21 +116,24 @@ func ImportFromAndroid(tm *models.TranslationManager, baseDirectory string) erro
 			}
 
 			if oneValue != "" || otherValue != "" {
-				tm.SetPluralTranslation(plural.Name, lang, oneValue, otherValue, "")
+				tm.SetPluralTranslation("android", plural.Name, lang, oneValue, otherValue, "")
 				importCount++
 			}
 		}
 	}
+
+	tm.Sort()
 
 	fmt.Printf("Imported %d translations from Android strings.xml files\n", importCount)
 	return nil
 }
 
 // ExportToAndroid exports translations to Android strings.xml files
-func ExportToAndroid(tm *models.TranslationManager, baseDirectory string) error {
-	if baseDirectory == "" {
-		baseDirectory = "."
-	}
+func ExportToAndroid(tm *Translations, baseDirectory string) error {
+
+	tm.Sort()
+
+	translations := tm.GetTranslationsForApp("android")
 
 	// Export to Android project structure: android/app/src/main/res/
 	androidResPath := filepath.Join(baseDirectory, "android", "app", "src", "main", "res")
@@ -141,7 +142,7 @@ func ExportToAndroid(tm *models.TranslationManager, baseDirectory string) error 
 	for _, lang := range tm.Languages {
 		// Check if there are any Android translations for this language
 		hasTranslations := false
-		for _, trans := range tm.Translations {
+		for _, trans := range translations {
 			if _, ok := trans.Values[lang]; ok {
 				hasTranslations = true
 				break
@@ -181,47 +182,43 @@ func ExportToAndroid(tm *models.TranslationManager, baseDirectory string) error 
 		processedPlurals := make(map[string]bool)
 
 		// Add translations
-		for _, trans := range tm.Translations {
+		for _, trans := range translations {
 			// Skip keys without translations for this language
 			values, ok := trans.Values[lang]
-			if !ok {
+			if !ok || values == "" {
 				continue
 			}
 
-			if trans.Type == "singular" {
-				// Add as regular string
-				if values.One != "" {
-					resources.Strings = append(resources.Strings, StringElement{
-						Name:  trans.Key,
-						Value: values.One,
-					})
-				}
-			} else if trans.Type == "plural" && !processedPlurals[trans.Key] {
+			singularKey := trans.GetSingularKey()
+
+			if singularKey != trans.Key && !processedPlurals[singularKey] {
 				// Add as plural
 				pluralResource := PluralElement{
-					Name:  trans.Key,
+					Name:  singularKey,
 					Items: []PluralItem{},
 				}
+				pluralValues := tm.GetPlural("android", singularKey)
 
-				// Add quantity items
-				if values.One != "" {
-					pluralResource.Items = append(pluralResource.Items, PluralItem{
-						Quantity: "one",
-						Value:    values.One,
-					})
-				}
+				pluralResource.Items = append(pluralResource.Items, PluralItem{
+					Quantity: "one",
+					Value:    pluralValues.One[lang],
+				})
 
-				if values.Other != "" {
-					pluralResource.Items = append(pluralResource.Items, PluralItem{
-						Quantity: "other",
-						Value:    values.Other,
-					})
-				}
+				pluralResource.Items = append(pluralResource.Items, PluralItem{
+					Quantity: "other",
+					Value:    pluralValues.Other[lang],
+				})
 
 				if len(pluralResource.Items) > 0 {
 					resources.Plurals = append(resources.Plurals, pluralResource)
-					processedPlurals[trans.Key] = true
+					processedPlurals[singularKey] = true
 				}
+
+			} else if !processedPlurals[singularKey] {
+				resources.Strings = append(resources.Strings, StringElement{
+					Name:  trans.Key,
+					Value: values,
+				})
 			}
 		}
 
